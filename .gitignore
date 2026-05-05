@@ -1,0 +1,17 @@
+node_modules/
+dist/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# Local target/debug scripts and hardware-specific tests.
+fps-test.mjs
+test-restart.mjs
+test-webrtc*.mjs
+tests/output-streaming.spec.ts
+tests/settings-stress.spec.ts
+tests/source-lifecycle.spec.ts
+tests/source-stress.spec.ts
+tests/perf-hdr-4k.spec.ts
+tests/target-crash.spec.ts
+tests/vfmcap-verify.spec.ts

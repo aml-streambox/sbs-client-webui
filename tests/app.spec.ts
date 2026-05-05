@@ -1,0 +1,927 @@
+import { expect, test, type Page } from '@playwright/test'
+
+const FILTER_STRESS_COUNT = 160
+
+async function installMockSocket(page: Page, scenario = 'default') {
+  await page.addInitScript((arg: { scenario: string; filterStressCount: number }) => {
+    const sockets = []
+    const promptResponses = []
+    const state = {
+      scenes: {
+        'scene-main': { id: 'scene-main', name: 'Main', items: [{ id: 'item-default', source_id: 'default-src', visible: true, z_order: 0, filters: [], transform: { position_x: 0, position_y: 0, width: 640, height: 360, crop_top: 0, crop_bottom: 0, crop_left: 0, crop_right: 0, rotation_deg: 0, flip_horizontal: false, flip_vertical: false, bounds_type: 'stretch', alignment: 'center', opacity: 1 } }] },
+        'scene-alt': { id: 'scene-alt', name: 'Alt', items: [] },
+      },
+      sources: {
+        'default-src': { id: 'default-src', name: 'Camera', type: 'videotestsrc', state: 'running', filters: [] },
+      },
+      output_groups: {
+        'default-out': { id: 'default-out', name: 'Program SRT', state: 'running' },
+      },
+      state: {
+        active_scene_id: 'scene-main',
+      },
+      preview: {
+        available_profiles: [
+          {
+            id: 'program-hevc-srt',
+            kind: 'reuse',
+            transport: 'srt',
+            codec: 'h265',
+            container: 'mpegts',
+            latency_class: 'low',
+            resolution: { width: 3840, height: 2160 },
+            framerate: 50,
+            hardware_decode_preferred: true,
+            requires_additional_encode: false,
+            available: true,
+            requestable: false,
+            active: true,
+            viewer_count: 0,
+            stream_url: 'srt://127.0.0.1:8888',
+          },
+        ],
+        requestable_profiles: [
+          {
+            id: 'preview-h264-720p30',
+            kind: 'fallback',
+            transport: 'hls',
+            codec: 'h264',
+            container: 'cmaf',
+            latency_class: 'medium',
+            resolution: { width: 1280, height: 720 },
+            framerate: 30,
+            hardware_decode_preferred: true,
+            requires_additional_encode: true,
+            available: false,
+            requestable: true,
+            active: false,
+            viewer_count: 0,
+            stream_url: 'http://127.0.0.1:10086/preview/preview-h264-720p30.m3u8',
+          },
+        ],
+      },
+      instances: [
+        {
+          instance_id: 0,
+          name: 'Default',
+          desired_running: true,
+          running: true,
+          pid: 1234,
+          api_port: 10100,
+          preview_port: 10101,
+        },
+      ],
+      audio: {
+        device: 'hw:0,2',
+        master_volume: 1,
+        master_mute: false,
+        levels: {
+          sources: {
+            'default-src': { level_db: -18, peak_db: -8 },
+          },
+          master: { level_db: -12, peak_db: -6 },
+        },
+      },
+    }
+
+    const sourceKinds = [
+      {
+        id: 'videotestsrc', name: 'Test Pattern', summary: 'GStreamer video test source', pausable: true,
+        fields: [{ key: 'pattern', label: 'Pattern', type: 'select', default: 'smpte', options: ['smpte', 'ball', 'snow', 'pinwheel'] }],
+      },
+      {
+        id: 'streamboxsrc', name: 'StreamBox Capture', summary: 'StreamBox HDMI capture hardware', pausable: false,
+        fields: [
+          { key: 'capture_mode', label: 'Capture Mode', type: 'select', default: 'vfmcap', options: ['vfmcap', 'vdin1'] },
+          { key: 'output_format', label: 'Output Format', type: 'select', default: 'nv12', options: ['nv12', 'p010'] },
+        ],
+      },
+      {
+        id: 'v4l2src', name: 'V4L2 Device', summary: 'Linux V4L2 video capture device', pausable: false,
+        fields: [{ key: 'device_path', label: 'Device Path', type: 'string', default: '/dev/video0' }],
+      },
+      {
+        id: 'image', name: 'Image', summary: 'Static image source from a local path or URI', pausable: true,
+        fields: [
+          { key: 'path', label: 'Path or URI', type: 'string', default: '/tmp/sbs-static-test.png', asset_kind: 'image' },
+          { key: 'loop', label: 'Loop', type: 'boolean', default: true },
+        ],
+      },
+      {
+        id: 'uridecodebin', name: 'URI Decode', summary: 'Decode local or remote media URI', pausable: true,
+        fields: [
+          { key: 'uri', label: 'URI', type: 'string', default: 'file:///tmp/sbs-static-test.mp4', asset_kind: 'media' },
+          { key: 'loop', label: 'Loop', type: 'boolean', default: true },
+        ],
+      },
+      { id: 'text', name: 'Text', summary: 'Generated text overlay source', pausable: true, fields: [
+        { key: 'text', label: 'Text', type: 'string', default: 'LIVE' },
+        { key: 'font_path', label: 'Font File', type: 'string', default: '', asset_kind: 'font' },
+      ] },
+    ]
+
+    if (arg.scenario === 'design-stress') {
+      const long = 'Legal Long Name With Spaces Slashes - underscores_1234567890'
+      state.canvas = { width: 3840, height: 2160, fps_num: 60, fps_den: 1, color_mode: 'hdr10', background_color: '#123456' }
+      state.instances = Array.from({ length: 6 }, (_, i) => ({
+        instance_id: i,
+        name: `${long} Instance ${i}`,
+        desired_running: i !== 4,
+        running: i !== 4,
+        pid: 2200 + i,
+        api_port: 10100 + i * 2,
+        preview_port: 10101 + i * 2,
+      }))
+      state.sources = Object.fromEntries(Array.from({ length: 24 }, (_, i) => {
+        const kind = sourceKinds[i % sourceKinds.length]
+        const id = `legal-source-${String(i).padStart(2, '0')}`
+        return [id, {
+          id,
+          name: `${long} Source ${String(i).padStart(2, '0')}`,
+          type: kind.id,
+          state: i % 5 === 0 ? 'disabled' : i % 7 === 0 ? 'starting' : 'running',
+          enabled: i % 5 !== 0,
+          config: Object.fromEntries(kind.fields.map((field) => [field.key, String(field.default)])),
+          filters: [],
+        }]
+      }))
+      const stressItems = Array.from({ length: 16 }, (_, i) => ({
+        id: `legal-item-${String(i).padStart(2, '0')}`,
+        source_id: `legal-source-${String(i % 12).padStart(2, '0')}`,
+        visible: true,
+        z_order: i,
+        filters: [
+          { id: `flt-${i}-brightness`, type: 'brightness', enabled: i % 2 === 0, params: { amount: i % 2 === 0 ? 0.5 : -0.5 } },
+          { id: `flt-${i}-contrast`, type: 'contrast', enabled: true, params: { amount: i % 3 === 0 ? 2 : 0.5 } },
+        ],
+        transform: {
+          position_x: (i % 4) * 960,
+          position_y: Math.floor(i / 4) * 540,
+          width: i === 14 ? 32 : 960,
+          height: i === 15 ? 32 : 540,
+          crop_top: 0,
+          crop_bottom: 0,
+          crop_left: 0,
+          crop_right: 0,
+          rotation_deg: [0, 90, 180, 270][i % 4],
+          flip_horizontal: i % 2 === 0,
+          flip_vertical: i % 3 === 0,
+          bounds_type: 'stretch',
+          alignment: 'center',
+          opacity: i % 4 === 0 ? 0 : 1,
+        },
+      }))
+      state.scenes = Object.fromEntries(Array.from({ length: 12 }, (_, i) => {
+        const id = `legal-scene-${String(i).padStart(2, '0')}`
+        return [id, { id, name: `${long} Scene ${String(i).padStart(2, '0')}`, items: i === 0 ? stressItems : [] }]
+      }))
+      state.output_groups = Object.fromEntries(Array.from({ length: 10 }, (_, i) => {
+        const id = `legal-output-${String(i).padStart(2, '0')}`
+        return [id, { id, name: `${long} Output ${String(i).padStart(2, '0')}`, state: i % 2 === 0 ? 'running' : 'disabled' }]
+      }))
+      state.state.active_scene_id = 'legal-scene-00'
+      state.audio.levels.sources = Object.fromEntries(Object.keys(state.sources).map((id, i) => [id, { level_db: -60 + (i % 12) * 5, peak_db: -40 + (i % 8) * 4 }]))
+      state.audio.levels.master = { level_db: -3, peak_db: 0 }
+    }
+
+    if (arg.scenario === 'filter-stress') {
+      const filterTypes = ['grayscale', 'brightness', 'contrast', 'hdr_to_sdr_lut']
+      state.sources['default-src'].filters = Array.from({ length: arg.filterStressCount }, (_, i) => {
+        const type = filterTypes[i % filterTypes.length]
+        return {
+          id: `${type}-stress-${i}`,
+          type,
+          enabled: i % 11 !== 0,
+          params: type === 'brightness'
+            ? { amount: ((i % 9) - 4) / 20 }
+            : type === 'contrast'
+              ? { amount: 0.8 + (i % 8) / 10 }
+              : type === 'hdr_to_sdr_lut'
+                ? { amount: 1, path: '' }
+                : { amount: 1 },
+        }
+      })
+    }
+
+    class MockWebSocket {
+      static OPEN = 1
+      readyState = 1
+      onopen = null
+      onmessage = null
+      onerror = null
+      onclose = null
+
+      constructor() {
+        sockets.push(this)
+        queueMicrotask(() => {
+          this.onopen?.(new Event('open'))
+        })
+      }
+
+      send(raw) {
+        const request = JSON.parse(raw)
+        const method = request.method === 'instance.call' ? request.params?.method : request.method
+        const requestParams = request.method === 'instance.call' ? request.params?.params ?? {} : request.params ?? {}
+        const respond = (payload) => {
+          queueMicrotask(() => {
+            this.onmessage?.({ data: JSON.stringify(payload) })
+          })
+        }
+        const publish = (topic, data) => {
+          queueMicrotask(() => {
+            this.onmessage?.({
+              data: JSON.stringify({
+                jsonrpc: '2.0',
+                method: 'pubsub.event',
+                params: { topic, data },
+              }),
+            })
+          })
+        }
+
+        if (method === 'system.getState') {
+          respond({ jsonrpc: '2.0', id: request.id, result: state })
+          return
+        }
+
+        if (method === 'source.listKinds') {
+          respond({
+            jsonrpc: '2.0', id: request.id, result: { kinds: sourceKinds.map(({ fields, ...kind }) => kind) },
+          })
+          return
+        }
+
+        if (method === 'source.describeKind') {
+          const kind = sourceKinds.find((entry) => entry.id === requestParams.kind)
+          respond({
+            jsonrpc: '2.0', id: request.id, result: { kind },
+          })
+          return
+        }
+
+        if (method === 'source.uploadAsset') {
+          const filename = String(requestParams.filename ?? 'upload.bin').replace(/[^a-zA-Z0-9._-]+/g, '_')
+          const assetKind = requestParams.asset_kind ?? 'media'
+          const path = `/var/lib/sbs/instances/0/assets/${assetKind}/mock-${filename}`
+          respond({
+            jsonrpc: '2.0', id: request.id, result: {
+              asset_kind: assetKind,
+              filename,
+              path,
+              uri: `file://${path}`,
+              size: String(requestParams.data_base64 ?? '').length,
+            },
+          })
+          return
+        }
+
+        if (method === 'instance.list') {
+          respond({ jsonrpc: '2.0', id: request.id, result: { instances: state.instances } })
+          return
+        }
+
+        if (method === 'instance.create') {
+          const instance = {
+            instance_id: state.instances.length,
+            name: requestParams.name,
+            desired_running: true,
+            running: true,
+            pid: 1200 + state.instances.length,
+            api_port: 10100 + state.instances.length * 2,
+            preview_port: 10101 + state.instances.length * 2,
+          }
+          state.instances.push(instance)
+          respond({ jsonrpc: '2.0', id: request.id, result: instance })
+          return
+        }
+
+        if (method === 'instance.update' || method === 'instance.enable' || method === 'instance.disable') {
+          const instance = state.instances.find((entry) => entry.instance_id === requestParams.instance_id)
+          if (instance) {
+            if (requestParams.name) {
+              instance.name = requestParams.name
+            }
+            if (method === 'instance.enable') {
+              instance.desired_running = true
+            } else if (method === 'instance.disable') {
+              instance.desired_running = false
+            } else if (typeof requestParams.enabled === 'boolean') {
+              instance.desired_running = requestParams.enabled
+            }
+          }
+          respond({ jsonrpc: '2.0', id: request.id, result: instance ?? {} })
+          return
+        }
+
+        if (method === 'instance.remove') {
+          state.instances = state.instances.filter((entry) => entry.instance_id !== requestParams.instance_id)
+          respond({ jsonrpc: '2.0', id: request.id, result: { ok: true } })
+          return
+        }
+
+        if (method === 'command.execute') {
+          const command = requestParams?.command ?? ''
+          if (command === 'scene set-active scene-alt') {
+            state.state.active_scene_id = 'scene-alt'
+            publish('scene.changed', { active_scene_id: 'scene-alt' })
+          }
+          if (command === 'source stop default-src') {
+            state.sources['default-src'].state = 'disabled'
+            publish('source.status', state.sources['default-src'])
+          }
+          if (command === 'output stop default-out') {
+            state.output_groups['default-out'].state = 'disabled'
+            publish('output.status', state.output_groups['default-out'])
+          }
+          respond({ jsonrpc: '2.0', id: request.id, result: { ok: true } })
+          return
+        }
+
+        if (method === 'scene.create') {
+          const scene = { id: requestParams.id, name: requestParams.name, items: [] }
+          state.scenes[scene.id] = scene
+          publish('scene.created', scene)
+          respond({ jsonrpc: '2.0', id: request.id, result: scene })
+          return
+        }
+
+        if (method === 'scene.remove') {
+          delete state.scenes[requestParams.id]
+          if (state.state.active_scene_id === requestParams.id) {
+            state.state.active_scene_id = Object.keys(state.scenes)[0] ?? null
+          }
+          publish('scene.removed', { id: requestParams.id })
+          respond({ jsonrpc: '2.0', id: request.id, result: { ok: true } })
+          return
+        }
+
+        if (method === 'source.create') {
+          const source = { id: requestParams.id, name: requestParams.name, type: requestParams.type, state: 'disabled', config: requestParams.config ?? {}, filters: [] }
+          state.sources[source.id] = source
+          publish('source.created', source)
+          respond({ jsonrpc: '2.0', id: request.id, result: source })
+          return
+        }
+
+        if (method === 'source.update') {
+          const source = state.sources[requestParams.id]
+          if (source) {
+            if (requestParams.name) source.name = requestParams.name
+            if (requestParams.config) source.config = requestParams.config
+          }
+          publish('source.updated', source)
+          respond({ jsonrpc: '2.0', id: request.id, result: source ?? {} })
+          return
+        }
+
+        if (method === 'source.remove') {
+          delete state.sources[requestParams.id]
+          publish('source.removed', { id: requestParams.id })
+          respond({ jsonrpc: '2.0', id: request.id, result: { ok: true } })
+          return
+        }
+
+        if (method === 'output.create') {
+          const output = { id: requestParams.id, name: requestParams.name, state: 'disabled' }
+          state.output_groups[output.id] = output
+          publish('output.created', output)
+          respond({ jsonrpc: '2.0', id: request.id, result: output })
+          return
+        }
+
+        if (method === 'output.remove') {
+          delete state.output_groups[requestParams.id]
+          publish('output.removed', { id: requestParams.id })
+          respond({ jsonrpc: '2.0', id: request.id, result: { ok: true } })
+          return
+        }
+
+        if (method === 'filter.add') {
+          const source = state.sources[requestParams.source_id]
+          const filter = {
+            id: requestParams.id,
+            type: requestParams.type,
+            enabled: true,
+            params: requestParams.params ?? {},
+          }
+          if (source) source.filters.push(filter)
+          publish('filter.added', source)
+          respond({ jsonrpc: '2.0', id: request.id, result: source ?? {} })
+          return
+        }
+
+        if (method === 'filter.update') {
+          const source = state.sources[requestParams.source_id]
+          const filter = source?.filters.find((entry) => entry.id === requestParams.filter_id)
+          if (filter) {
+            filter.enabled = requestParams.enabled
+            filter.params = requestParams.params ?? filter.params
+          }
+          publish('filter.updated', source)
+          respond({ jsonrpc: '2.0', id: request.id, result: source ?? {} })
+          return
+        }
+
+        if (method === 'filter.remove') {
+          const source = state.sources[requestParams.source_id]
+          if (source) source.filters = source.filters.filter((entry) => entry.id !== requestParams.filter_id)
+          publish('filter.removed', source)
+          respond({ jsonrpc: '2.0', id: request.id, result: source ?? {} })
+          return
+        }
+
+        if (method === 'snapshot.capture') {
+          respond({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: {
+              id: 'snap-1',
+              format: 'jpeg',
+              url: 'http://127.0.0.1:10087/snapshots/snap-1.jpg',
+            },
+          })
+          return
+        }
+
+        if (method === 'audio.setSource') {
+          respond({ jsonrpc: '2.0', id: request.id, result: { ok: true } })
+          return
+        }
+
+        if (method === 'audio.setMaster') {
+          state.audio.master_volume = requestParams.volume
+          state.audio.master_mute = requestParams.mute
+          respond({ jsonrpc: '2.0', id: request.id, result: state.audio })
+          return
+        }
+
+        if (method === 'preview.listProfiles') {
+          respond({
+            jsonrpc: '2.0',
+            id: request.id,
+            result: state.preview,
+          })
+          return
+        }
+
+        if (method === 'preview.ensureProfile') {
+          const profile = {
+            ...state.preview.requestable_profiles[0],
+            available: true,
+            active: true,
+            viewer_count: 1,
+          }
+          state.preview.requestable_profiles[0] = profile
+          publish('preview.profile.active', profile)
+          respond({ jsonrpc: '2.0', id: request.id, result: profile })
+          return
+        }
+
+        if (method === 'preview.releaseProfile') {
+          const profile = {
+            ...state.preview.requestable_profiles[0],
+            available: false,
+            active: false,
+            viewer_count: 0,
+          }
+          state.preview.requestable_profiles[0] = profile
+          publish('preview.profile.released', profile)
+          respond({ jsonrpc: '2.0', id: request.id, result: profile })
+          return
+        }
+
+        if (method === 'preview.getStatus') {
+          respond({ jsonrpc: '2.0', id: request.id, result: { catalog: state.preview, telemetry: {} } })
+          return
+        }
+
+        if (method === 'scene.item.update') {
+          const scene = state.scenes[requestParams.scene_id]
+          if (scene) {
+            const item = scene.items.find((i: any) => i.id === requestParams.item_id)
+            if (item) {
+              if (requestParams.transform) Object.assign(item.transform, requestParams.transform)
+              if (requestParams.visible !== undefined) item.visible = requestParams.visible
+              if (requestParams.z_order !== undefined) item.z_order = requestParams.z_order
+            }
+          }
+          publish('scene.item.updated', { scene_id: requestParams.scene_id, item_id: requestParams.item_id })
+          respond({ jsonrpc: '2.0', id: request.id, result: { ok: true } })
+          return
+        }
+
+        if (method === 'scene.item.add') {
+          const scene = state.scenes[requestParams.scene_id]
+          if (scene) {
+            const item = { id: requestParams.id || `item-${Date.now()}`, source_id: requestParams.source_id, visible: true, z_order: 0, filters: [], transform: { position_x: 0, position_y: 0, width: 640, height: 360, crop_top: 0, crop_bottom: 0, crop_left: 0, crop_right: 0, rotation_deg: 0, flip_horizontal: false, flip_vertical: false, bounds_type: 'stretch', alignment: 'center', opacity: 1 } }
+            scene.items.push(item)
+            publish('scene.item.added', item)
+            respond({ jsonrpc: '2.0', id: request.id, result: item })
+          } else {
+            respond({ jsonrpc: '2.0', id: request.id, error: { code: -32001, message: 'Scene not found' } })
+          }
+          return
+        }
+
+        respond({ jsonrpc: '2.0', id: request.id, result: {} })
+      }
+
+      close() {
+        this.onclose?.(new CloseEvent('close'))
+      }
+    }
+
+    Object.defineProperty(window, 'WebSocket', {
+      configurable: true,
+      writable: true,
+      value: MockWebSocket,
+    })
+
+    Object.defineProperty(window, 'prompt', {
+      configurable: true,
+      writable: true,
+      value: () => promptResponses.shift() ?? null,
+    })
+
+    Object.defineProperty(window, '__mockSockets', {
+      configurable: true,
+      writable: true,
+      value: sockets,
+    })
+
+    Object.defineProperty(window, '__setPromptResponses', {
+      configurable: true,
+      writable: true,
+      value: (responses) => {
+        promptResponses.splice(0, promptResponses.length, ...responses)
+      },
+    })
+  }, { scenario, filterStressCount: FILTER_STRESS_COUNT })
+}
+
+test('renders OBS-like workspace chrome', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  await expect(page.getByText('SBS Studio')).toBeVisible()
+  await expect(page.getByText('Program', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Scenes' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sources' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Controls' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Audio Mixer' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Main' })).toBeVisible()
+  await expect(page.getByText('Camera').first()).toBeVisible()
+})
+
+test('accepts direct command entry', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  const input = page.getByRole('textbox')
+  await input.fill('scene set-active scene-main')
+  await expect(input).toHaveValue('scene set-active scene-main')
+  await expect(page.getByRole('button', { name: 'Run' })).toBeVisible()
+})
+
+test('updates scene state from command and pubsub', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Alt' }).click()
+  await expect(page.getByRole('button', { name: 'Alt' })).toHaveClass(/active/)
+})
+
+test('toggles output controls and source visibility', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  const outputCard = page.locator('.output-card', { hasText: 'Program SRT' })
+  const stopButton = outputCard.getByRole('button', { name: 'Stop' })
+  await expect(stopButton).toBeVisible()
+
+  await stopButton.click()
+  await expect(outputCard.getByRole('button', { name: 'Start' })).toBeVisible()
+})
+
+test('adds and removes filters from inspector', async ({ page }, testInfo) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  const filtersDock = page.locator('.draggable-dock').filter({ hasText: 'Filters' }).first()
+  await expect(filtersDock).toBeVisible()
+  await expect(filtersDock.getByRole('combobox', { name: 'Add effect filter' })).toBeVisible()
+  await expect(filtersDock.locator('input[type="range"]').first()).toHaveCount(0)
+  await expect.poll(() => filtersDock.evaluate((dock) => dock.draggable)).toBe(false)
+  await expect.poll(() => filtersDock.locator('.dock-handle').evaluate((handle) => handle.draggable)).toBe(true)
+
+  await filtersDock.getByRole('combobox', { name: 'Add effect filter' }).selectOption('contrast')
+  await expect(filtersDock.locator('.filter-list-row')).toHaveCount(1)
+  await expect(filtersDock.locator('.filter-list-row', { hasText: 'Contrast' })).toHaveAttribute('aria-selected', 'true')
+  await expect(filtersDock.locator('input[type="range"]')).toHaveCount(1)
+  await expect(filtersDock.locator('.filter-value')).toHaveText('1.15x')
+  await expect(filtersDock.getByRole('spinbutton', { name: 'contrast amount value' })).toHaveValue('1.15')
+
+  const contrastSlider = filtersDock.getByRole('slider', { name: 'contrast amount' })
+  const initialDockOrder = await page.locator('.draggable-dock').evaluateAll((docks) => docks.map((dock) => (dock as HTMLElement).dataset.panel).join('|'))
+  if (testInfo.project.name === 'desktop-1366') {
+    const box = await contrastSlider.boundingBox()
+    expect(box).not.toBeNull()
+    await page.mouse.move(box!.x + box!.width * 0.45, box!.y + box!.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(box!.x + box!.width * 0.9, box!.y + box!.height / 2, { steps: 4 })
+    await page.mouse.up()
+  } else {
+    await contrastSlider.focus()
+    await page.keyboard.press('ArrowRight')
+  }
+  await expect.poll(async () => filtersDock.locator('.filter-value').textContent()).not.toBe('1.15x')
+  const afterSliderDockOrder = await page.locator('.draggable-dock').evaluateAll((docks) => docks.map((dock) => (dock as HTMLElement).dataset.panel).join('|'))
+  expect(afterSliderDockOrder).toBe(initialDockOrder)
+
+  await filtersDock.getByRole('spinbutton', { name: 'contrast amount value' }).fill('1.85')
+  await filtersDock.getByRole('spinbutton', { name: 'contrast amount value' }).press('Enter')
+  await expect(filtersDock.locator('.filter-value')).toHaveText('1.85x')
+
+  await filtersDock.getByRole('button', { name: 'Remove selected filter' }).click()
+  await expect(filtersDock.locator('.filter-list-row')).toHaveCount(0)
+})
+
+test('visually handles a source with many filters', async ({ page }, testInfo) => {
+  await installMockSocket(page, 'filter-stress')
+  await page.goto('/')
+
+  const filtersDock = page.locator('.draggable-dock').filter({ hasText: 'Filters' }).first()
+  await expect(filtersDock.getByText('Target Source')).toBeVisible()
+  await expect(filtersDock.getByText('Camera')).toBeVisible()
+  await expect(filtersDock.locator('.filter-list-row')).toHaveCount(FILTER_STRESS_COUNT)
+
+  const metrics = await filtersDock.evaluate((dock) => {
+    const list = dock.querySelector<HTMLElement>('.filter-list')
+    const start = performance.now()
+    for (let i = 0; i < 40; i++) {
+      if (list) list.scrollTop = i % 2 === 0 ? list.scrollHeight : 0
+      dock.getBoundingClientRect()
+    }
+    const scrollMs = performance.now() - start
+    return {
+      filterCount: dock.querySelectorAll('.filter-list-row').length,
+      rangeCount: dock.querySelectorAll('input[type="range"]').length,
+      scrollMs,
+    }
+  })
+
+  console.log(`filter stress metrics: filters=${metrics.filterCount} ranges=${metrics.rangeCount} scrollMs=${metrics.scrollMs.toFixed(2)}`)
+  expect(metrics.filterCount).toBe(FILTER_STRESS_COUNT)
+  expect(metrics.rangeCount).toBe(1)
+  expect(metrics.scrollMs).toBeLessThan(1000)
+
+  await filtersDock.screenshot({ path: testInfo.outputPath('filter-stress-inspector.png') })
+})
+
+test('captures snapshot from preview panel', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Snapshot' }).click()
+  await expect(page.getByRole('link', { name: 'Open Snapshot' })).toBeVisible()
+})
+
+test('shows audio mixer controls', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  const mixerDock = page.locator('.draggable-dock').filter({ hasText: 'Audio Mixer' }).first()
+  await expect(mixerDock).toBeVisible()
+  await expect(mixerDock.getByText('Master')).toBeVisible()
+  await expect(mixerDock.locator('input[type="range"]').first()).toBeVisible()
+})
+
+test('creates and deletes scene, source, and output from direct controls', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  await page.evaluate(() => (window as any).__setPromptResponses(['Showcase']))
+  await page.getByRole('button', { name: '+ Scene' }).click()
+  await expect(page.getByRole('button', { name: 'Showcase' })).toBeVisible()
+
+  await page.getByRole('button', { name: '+ Source' }).click()
+  await expect(page.locator('.settings-overlay .source-picker-dialog')).toBeVisible()
+  await page.locator('.source-kind-card', { hasText: 'Test Pattern' }).click()
+  await expect(page.locator('.source-config-dialog')).toBeVisible()
+  await page.locator('.source-create-row').filter({ hasText: 'Name' }).locator('input').fill('Desk Cam')
+  await page.getByRole('button', { name: 'Create Source' }).click()
+  const deskCam = page.locator('.source-item', { hasText: 'Desk Cam' })
+  await expect(deskCam).toBeVisible()
+  await deskCam.getByRole('button', { name: 'Add' }).click()
+  await expect(deskCam.getByRole('button', { name: 'Hide' })).toBeVisible()
+  await deskCam.getByRole('button', { name: 'Hide' }).click()
+  await expect(deskCam.getByRole('button', { name: 'Show' })).toBeVisible()
+  await deskCam.getByRole('button', { name: 'Show' }).click()
+  await expect(deskCam.getByRole('button', { name: 'Hide' })).toBeVisible()
+
+  await page.evaluate(() => (window as any).__setPromptResponses(['Backup Feed']))
+  await page.getByRole('button', { name: '+ Output' }).click()
+  await expect(page.locator('.output-card', { hasText: 'Backup Feed' })).toBeVisible()
+  await expect(page.locator('.output-card', { hasText: 'Backup Feed' }).getByRole('button', { name: 'Start' })).toBeVisible()
+
+  await deskCam.getByRole('button', { name: 'Delete' }).click()
+  await expect(page.locator('.source-item', { hasText: 'Desk Cam' })).toHaveCount(0)
+})
+
+test('supports keyboard shortcuts for scene switch and snapshot', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  await page.locator('body').click({ position: { x: 10, y: 10 } })
+  await page.keyboard.press('2')
+  await expect(page.getByRole('button', { name: 'Alt' })).toHaveClass(/active/)
+
+  await page.keyboard.press('Shift+S')
+  await expect(page.getByRole('link', { name: 'Open Snapshot' })).toBeVisible()
+})
+
+test('reconnects after socket close', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  await expect(page.getByText('API connected')).toBeVisible()
+  await page.evaluate(() => (window as any).__mockSockets[0].close())
+  await page.waitForFunction(() => (window as any).__mockSockets.length > 1)
+  await expect(page.getByText('API connected')).toBeVisible()
+})
+
+async function expectWorkspaceNotBroken(page: Page) {
+  const issues = await page.evaluate(() => {
+    const result: string[] = []
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
+    const doc = document.documentElement
+    if (doc.scrollWidth > viewport.width + 2) result.push(`document horizontal overflow ${doc.scrollWidth} > ${viewport.width}`)
+    if (doc.scrollHeight > viewport.height + 2) result.push(`document vertical overflow ${doc.scrollHeight} > ${viewport.height}`)
+
+    function checkBox(selector: string, minWidth = 1, minHeight = 1) {
+      const elements = Array.from(document.querySelectorAll<HTMLElement>(selector))
+      if (elements.length === 0) {
+        result.push(`missing ${selector}`)
+        return
+      }
+      for (const [index, el] of elements.entries()) {
+        const box = el.getBoundingClientRect()
+        if (!Number.isFinite(box.left + box.top + box.width + box.height)) result.push(`${selector}[${index}] has non-finite rect`)
+        if (box.width < minWidth || box.height < minHeight) result.push(`${selector}[${index}] collapsed ${box.width}x${box.height}`)
+        if (box.right < -2 || box.left > viewport.width + 2) result.push(`${selector}[${index}] horizontally outside viewport`)
+      }
+    }
+
+    checkBox('.app-shell', viewport.width - 2, viewport.height - 2)
+    checkBox('.obs-topbar', 320, 24)
+    checkBox('.obs-layout', 320, 240)
+    checkBox('.obs-center-stage', 160, 120)
+    checkBox('.preview-screen', 160, 90)
+    checkBox('.draggable-dock', 120, 60)
+    checkBox('.obs-statusbar', 320, 24)
+
+    const preview = document.querySelector<HTMLElement>('.source-overlay')?.getBoundingClientRect()
+    for (const [index, el] of Array.from(document.querySelectorAll<HTMLElement>('.source-bbox')).entries()) {
+      const box = el.getBoundingClientRect()
+      const style = window.getComputedStyle(el)
+      if (!Number.isFinite(parseFloat(style.left)) || !Number.isFinite(parseFloat(style.top))) result.push(`source-bbox[${index}] has invalid positioned style`)
+      if (box.width < 0 || box.height < 0) result.push(`source-bbox[${index}] has negative size`)
+      if (preview && (box.left < preview.left - 4 || box.top < preview.top - 4 || box.right > preview.right + 4 || box.bottom > preview.bottom + 4)) {
+        result.push(`source-bbox[${index}] escaped preview box=${Math.round(box.left)},${Math.round(box.top)},${Math.round(box.right)},${Math.round(box.bottom)} preview=${Math.round(preview.left)},${Math.round(preview.top)},${Math.round(preview.right)},${Math.round(preview.bottom)} style=${style.left},${style.top},${style.width},${style.height}`)
+      }
+    }
+
+    for (const [index, el] of Array.from(document.querySelectorAll<HTMLElement>('button, input, select')).entries()) {
+      const box = el.getBoundingClientRect()
+      if (box.width > viewport.width + 2) result.push(`control[${index}] wider than viewport`)
+    }
+    return result
+  })
+  expect(issues).toEqual([])
+}
+
+test('survives legal-input design stress without layout breakage', async ({ page }) => {
+  const pageErrors: string[] = []
+  const consoleErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text())
+  })
+
+  await installMockSocket(page, 'design-stress')
+  await page.goto('/')
+  await expect(page.getByText('SBS Studio')).toBeVisible()
+  await expect(page.locator('.source-bbox')).toHaveCount(16)
+  await expectWorkspaceNotBroken(page)
+
+  await page.getByRole('button', { name: '+ Source' }).click()
+  await expect(page.locator('.settings-overlay .source-picker-dialog')).toBeVisible()
+  await page.locator('.source-kind-card', { hasText: 'Image' }).click()
+  await expect(page.locator('.source-config-dialog')).toBeVisible()
+  await page.locator('.source-create-row').filter({ hasText: 'Name' }).locator('input').fill('Legal Static Image Source With A Very Long Display Name 0123456789')
+  await expect(page.locator('.source-create-row').filter({ hasText: 'Loop' }).locator('input[type="checkbox"]')).toBeChecked()
+  const imagePathRow = page.locator('.source-create-row').filter({ hasText: 'Path or URI' })
+  await imagePathRow.locator('input[type="file"]').setInputFiles({
+    name: 'legal image name with spaces.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('mock-png'),
+  })
+  await expect(imagePathRow.locator('.asset-field-status')).toContainText('Uploaded legal_image_name_with_spaces.png')
+  await expect(imagePathRow.locator('input').first()).toHaveValue(/assets\/image\/mock-legal_image_name_with_spaces.png/)
+  await page.getByRole('button', { name: 'Create Source' }).click()
+  await expect(page.locator('.source-picker-dialog')).toHaveCount(0)
+  await expect(page.locator('.source-config-dialog')).toHaveCount(0)
+  await expectWorkspaceNotBroken(page)
+
+  await page.getByRole('banner').getByRole('button', { name: 'Settings' }).click()
+  await expect(page.locator('.settings-dialog')).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expectWorkspaceNotBroken(page)
+
+  expect(pageErrors).toEqual([])
+  expect(consoleErrors).toEqual([])
+})
+
+const JUMP_TOLERANCE = 3
+
+for (const dir of ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']) {
+  test(`resize from ${dir} does not jump on release`, async ({ page }) => {
+    await installMockSocket(page)
+    await page.goto('/')
+    await page.waitForTimeout(500)
+
+    const bbox = page.locator('.source-bbox').first()
+    await expect(bbox).toBeVisible()
+
+    await bbox.click({ force: true })
+    await page.waitForTimeout(100)
+
+    const handle = page.locator(`.bbox-rh.rh-${dir}`)
+    await expect(handle).toBeVisible()
+
+    const handleBox = await handle.boundingBox()
+    expect(handleBox).toBeTruthy()
+
+    const dragX = dir.includes('e') ? 40 : dir.includes('w') ? -40 : 0
+    const dragY = dir.includes('s') ? 30 : dir.includes('n') ? -30 : 0
+    const hx = handleBox!.x + handleBox!.width / 2
+    const hy = handleBox!.y + handleBox!.height / 2
+
+    await page.mouse.move(hx, hy)
+    await page.mouse.down()
+    await page.mouse.move(hx + dragX, hy + dragY, { steps: 6 })
+
+    const duringStyle = await bbox.evaluate((el: HTMLElement) => ({
+      left: el.style.left, top: el.style.top, width: el.style.width, height: el.style.height,
+    }))
+
+    await page.mouse.up()
+    await page.waitForTimeout(500)
+
+    const afterStyle = await bbox.evaluate((el: HTMLElement) => ({
+      left: el.style.left, top: el.style.top, width: el.style.width, height: el.style.height,
+    }))
+
+    const parse = (v: string) => parseFloat(v) || 0
+
+    expect(Math.abs(parse(afterStyle.left) - parse(duringStyle.left))).toBeLessThan(JUMP_TOLERANCE)
+    expect(Math.abs(parse(afterStyle.top) - parse(duringStyle.top))).toBeLessThan(JUMP_TOLERANCE)
+    expect(Math.abs(parse(afterStyle.width) - parse(duringStyle.width))).toBeLessThan(JUMP_TOLERANCE)
+    expect(Math.abs(parse(afterStyle.height) - parse(duringStyle.height))).toBeLessThan(JUMP_TOLERANCE)
+  })
+}
+
+test('drag move does not jump on release', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+  await page.waitForTimeout(500)
+
+  const bbox = page.locator('.source-bbox').first()
+  await expect(bbox).toBeVisible()
+
+  const beforeBox = await bbox.boundingBox()
+  expect(beforeBox).toBeTruthy()
+
+  const cx = beforeBox!.x + beforeBox!.width / 2
+  const cy = beforeBox!.y + beforeBox!.height / 2
+
+  await page.mouse.move(cx, cy)
+  await page.mouse.down()
+  await page.mouse.move(cx + 60, cy - 40, { steps: 6 })
+
+  const duringStyle = await bbox.evaluate((el: HTMLElement) => ({
+    left: el.style.left, top: el.style.top, width: el.style.width, height: el.style.height,
+  }))
+
+  await page.mouse.up()
+  await page.waitForTimeout(500)
+
+  const afterStyle = await bbox.evaluate((el: HTMLElement) => ({
+    left: el.style.left, top: el.style.top, width: el.style.width, height: el.style.height,
+  }))
+
+  const parse = (v: string) => parseFloat(v) || 0
+
+  expect(Math.abs(parse(afterStyle.left) - parse(duringStyle.left))).toBeLessThan(JUMP_TOLERANCE)
+  expect(Math.abs(parse(afterStyle.top) - parse(duringStyle.top))).toBeLessThan(JUMP_TOLERANCE)
+})
