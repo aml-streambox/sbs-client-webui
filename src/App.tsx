@@ -5,20 +5,30 @@ import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, 
 import type { SourceKind, SourceKindField } from './types'
 
 type DockSlot = 'left-top' | 'left-bottom' | 'right' | 'bottom-left' | 'bottom-middle'
-type DockPanel = 'scenes' | 'sources' | 'controls' | 'mixer' | 'transitions'
+type DockPanel = 'scenes' | 'sources' | 'controls' | 'mixer' | 'transitions' | 'filters'
+type WorkspaceMode = 'desktop' | 'tablet' | 'phone'
+type PhoneSection = 'scenes' | 'sources' | 'audio' | 'outputs' | 'more'
 type ResizeKey = 'leftWidth' | 'rightWidth' | 'bottomHeight' | 'leftTopRatio' | 'bottomLeftRatio'
 
 const DOCK_STORAGE_KEY = 'sbs-webui-dock-layout-v1'
 const DOCK_SIZE_STORAGE_KEY = 'sbs-webui-dock-sizes-v1'
 const DOCK_DRAG_MIME = 'application/x-sbs-dock-panel'
-const VALID_DOCK_PANELS = new Set<DockPanel>(['scenes', 'sources', 'controls', 'mixer', 'transitions'])
+const VALID_DOCK_PANELS = new Set<DockPanel>(['scenes', 'sources', 'controls', 'mixer', 'transitions', 'filters'])
 
 const DEFAULT_DOCK_LAYOUT: Record<DockSlot, DockPanel> = {
   'left-top': 'scenes',
   'left-bottom': 'sources',
   'right': 'controls',
   'bottom-left': 'mixer',
-  'bottom-middle': 'transitions',
+  'bottom-middle': 'filters',
+}
+
+const PREVIEW_ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
+
+function workspaceModeForViewport(width: number, height: number, coarsePointer = false): WorkspaceMode {
+  if (width < 700 || (coarsePointer && height <= 600)) return 'phone'
+  if (width < 1100) return 'tablet'
+  return 'desktop'
 }
 
 const DEFAULT_DOCK_SIZES = {
@@ -116,6 +126,10 @@ export default function App() {
   const [editOutputTransport, setEditOutputTransport] = useState<Record<string, string>>({})
   const [previewEncoder, setPreviewEncoder] = useState({ width: '1280', height: '720', framerate: '30', bitrate_kbps: '2500' })
   const [fadeDurationMs, setFadeDurationMs] = useState('2000')
+  const [previewZoom, setPreviewZoom] = useState(1)
+  const [previewViewport, setPreviewViewport] = useState({ width: 0, height: 0 })
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(() => typeof window === 'undefined' ? 'desktop' : workspaceModeForViewport(window.innerWidth, window.innerHeight, window.matchMedia('(pointer: coarse)').matches))
+  const [phoneSection, setPhoneSection] = useState<PhoneSection>('scenes')
 
   const dragRef = useRef<{
     type: 'move' | 'resize'
@@ -154,33 +168,49 @@ export default function App() {
     : state.previewStatus !== 'idle'
       ? state.previewMessage
       : status
+  const previewFitSize = (() => {
+    const width = Math.max(0, previewViewport.width)
+    const height = Math.max(0, previewViewport.height)
+    if (width <= 0 || height <= 0) return null
+    const aspect = canvasW / Math.max(canvasH, 1)
+    let fitWidth = width
+    let fitHeight = fitWidth / aspect
+    if (fitHeight > height) {
+      fitHeight = height
+      fitWidth = fitHeight * aspect
+    }
+    return { width: fitWidth, height: fitHeight }
+  })()
+  const previewScreenStyle = previewFitSize
+    ? {
+        width: `${Math.round(previewFitSize.width * previewZoom)}px`,
+        height: `${Math.round(previewFitSize.height * previewZoom)}px`,
+      }
+    : undefined
+  const previewZoomLabel = `${Math.round(previewZoom * 100)}%`
+
+  function adjustPreviewZoom(direction: -1 | 1) {
+    setPreviewZoom((current) => {
+      if (direction > 0) {
+        return PREVIEW_ZOOM_STEPS.find((step) => step > current + 0.001) ?? PREVIEW_ZOOM_STEPS[PREVIEW_ZOOM_STEPS.length - 1]
+      }
+      return [...PREVIEW_ZOOM_STEPS].reverse().find((step) => step < current - 0.001) ?? PREVIEW_ZOOM_STEPS[0]
+    })
+  }
+
+  function handlePreviewWheel(event: React.WheelEvent<HTMLDivElement>) {
+    if (!event.ctrlKey && !event.metaKey) return
+    event.preventDefault()
+    adjustPreviewZoom(event.deltaY < 0 ? 1 : -1)
+  }
 
   function getPreviewRect() {
     const wrapper = previewWrapperRef.current
     if (!wrapper) return null
-    const video = wrapper.querySelector('video') as HTMLVideoElement | null
     const overlay = wrapper.querySelector('.source-overlay') as HTMLElement | null
-    if (!video || !overlay) return null
+    if (!overlay) return null
     const overlayRect = overlay.getBoundingClientRect()
-    const elW = overlayRect.width
-    const elH = overlayRect.height
-    const vW = video.videoWidth || canvasW
-    const vH = video.videoHeight || canvasH
-    const elAspect = elW / elH
-    const vAspect = vW / vH
-    let contentW: number, contentH: number, offsetX: number, offsetY: number
-    if (vAspect > elAspect) {
-      contentW = elW
-      contentH = elW / vAspect
-      offsetX = 0
-      offsetY = (elH - contentH) / 2
-    } else {
-      contentH = elH
-      contentW = elH * vAspect
-      offsetX = (elW - contentW) / 2
-      offsetY = 0
-    }
-    return { width: contentW, height: contentH, offsetX, offsetY }
+    return { width: overlayRect.width, height: overlayRect.height, offsetX: 0, offsetY: 0 }
   }
 
   function canvasToPreview(cx: number, cy: number, cw: number, ch: number) {
@@ -191,6 +221,20 @@ export default function App() {
     return {
       x: pr.offsetX + cx * sx,
       y: pr.offsetY + cy * sy,
+      w: cw * sx,
+      h: ch * sy,
+    }
+  }
+
+  function canvasToPreviewLocal(cx: number, cy: number, cw: number, ch: number) {
+    if (!previewFitSize) return { x: 0, y: 0, w: 0, h: 0 }
+    const previewWidth = Math.round(previewFitSize.width * previewZoom)
+    const previewHeight = Math.round(previewFitSize.height * previewZoom)
+    const sx = previewWidth / canvasW
+    const sy = previewHeight / canvasH
+    return {
+      x: cx * sx,
+      y: cy * sy,
       w: cw * sx,
       h: ch * sy,
     }
@@ -239,6 +283,67 @@ export default function App() {
   }, [contextMenu])
 
   useEffect(() => {
+    const wrapperNode = previewWrapperRef.current
+    if (!wrapperNode) return
+    const wrapperElement: HTMLDivElement = wrapperNode
+
+    function measurePreviewViewport() {
+      const style = window.getComputedStyle(wrapperElement)
+      const paddingX = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      const paddingY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+      setPreviewViewport({
+        width: Math.max(0, wrapperElement.clientWidth - paddingX),
+        height: Math.max(0, wrapperElement.clientHeight - paddingY),
+      })
+    }
+
+    measurePreviewViewport()
+    const observer = new ResizeObserver(measurePreviewViewport)
+    observer.observe(wrapperElement)
+    window.addEventListener('resize', measurePreviewViewport)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', measurePreviewViewport)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!settingsOpen && !sourceCreateOpen && !sourceConfigOpen && !filtersOpen) return
+    const dialogNode = document.querySelector<HTMLElement>('.settings-overlay .settings-dialog')
+    if (!dialogNode) return
+    const dialog: HTMLElement = dialogNode
+
+    const focusableSelector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    const focusables = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector)).filter((el) => !el.hasAttribute('disabled'))
+    ;(focusables[0] ?? dialog).focus()
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setSettingsOpen(false)
+        setSourceCreateOpen(false)
+        setSourceConfigOpen(false)
+        setFiltersOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const items = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector)).filter((el) => !el.hasAttribute('disabled'))
+      if (items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [filtersOpen, settingsOpen, sourceConfigOpen, sourceCreateOpen])
+
+  useEffect(() => {
     if (!sourceContextMenu) return
     function onClickOutside(e: MouseEvent) {
       const menu = document.querySelector('.source-context-menu')
@@ -263,6 +368,15 @@ export default function App() {
   useEffect(() => {
     setDockLayout(loadDockLayout())
     setDockSizes(loadDockSizes())
+  }, [])
+
+  useEffect(() => {
+    function onResize() {
+      setWorkspaceMode(workspaceModeForViewport(window.innerWidth, window.innerHeight, window.matchMedia('(pointer: coarse)').matches))
+    }
+    onResize()
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [])
 
   useEffect(() => {
@@ -1390,7 +1504,7 @@ export default function App() {
     if (!settingsOpen) return null
     return (
       <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
-        <div className="settings-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="settings-dialog" role="dialog" aria-modal="true" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
           <div className="settings-header">
             <h2>Settings</h2>
             <button onClick={() => setSettingsOpen(false)}>X</button>
@@ -1445,7 +1559,7 @@ export default function App() {
     if (!sourceCreateOpen) return null
     return (
       <div className="settings-overlay" onClick={() => setSourceCreateOpen(false)}>
-        <div className="settings-dialog source-picker-dialog" onClick={(event) => event.stopPropagation()}>
+        <div className="settings-dialog source-picker-dialog" role="dialog" aria-modal="true" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
           <div className="settings-header">
             <h2>Choose Source Type</h2>
             <button onClick={() => setSourceCreateOpen(false)}>X</button>
@@ -1476,7 +1590,7 @@ export default function App() {
     if (!kind) return null
     return (
       <div className="settings-overlay" onClick={() => setSourceConfigOpen(false)}>
-        <div className="settings-dialog source-config-dialog" onClick={(event) => event.stopPropagation()}>
+        <div className="settings-dialog source-config-dialog" role="dialog" aria-modal="true" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
           <div className="settings-header">
             <h2>Create {kind.name}</h2>
             <button onClick={() => setSourceConfigOpen(false)}>X</button>
@@ -1718,7 +1832,7 @@ export default function App() {
     if (!filtersOpen) return null
     return (
       <div className="settings-overlay" onClick={() => setFiltersOpen(false)}>
-        <div className="settings-dialog filters-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="settings-dialog filters-dialog" role="dialog" aria-modal="true" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
           <div className="settings-header">
             <h2>Effect Filters</h2>
             <button onClick={() => setFiltersOpen(false)}>X</button>
@@ -2044,6 +2158,15 @@ export default function App() {
       )
     }
 
+    if (panel === 'filters') {
+      return (
+        <>
+          <div className="panel-title-row"><h2>Filters</h2></div>
+          {renderFilterEditor()}
+        </>
+      )
+    }
+
     if (panel === 'transitions') {
       return (
         <>
@@ -2091,6 +2214,62 @@ export default function App() {
     }
 
     return null
+  }
+
+  function panelForPhoneSection(section: PhoneSection): DockPanel | null {
+    if (section === 'scenes') return 'scenes'
+    if (section === 'sources') return 'sources'
+    if (section === 'audio') return 'mixer'
+    if (section === 'outputs') return 'controls'
+    return null
+  }
+
+  function phoneSectionLabel(section: PhoneSection) {
+    if (section === 'audio') return 'Audio'
+    return section[0].toUpperCase() + section.slice(1)
+  }
+
+  function renderAdaptiveSection() {
+    const panel = panelForPhoneSection(phoneSection)
+    if (panel) {
+      return renderDock(panel)
+    }
+    return (
+      <>
+        <div className="panel-title-row"><h2>More</h2></div>
+        <div className="control-column adaptive-more-panel">
+          <button onClick={() => openSettings()}>Settings</button>
+          <button onClick={() => refreshState().then(() => setStatus('State refreshed')).catch((error) => setStatus(String(error)))}>Refresh State</button>
+          <button onClick={() => resetWorkspaceLayout()}>Reset Desktop Layout</button>
+          <div className="adaptive-more-group">
+            {renderDock('transitions')}
+          </div>
+        </div>
+      </>
+    )
+  }
+
+  function renderSectionNav(className: string) {
+    const sections: PhoneSection[] = ['scenes', 'sources', 'audio', 'outputs', 'more']
+    return (
+      <nav className={className} aria-label="Workspace sections">
+        {sections.map((section) => (
+          <button
+            key={section}
+            type="button"
+            aria-current={phoneSection === section ? 'page' : undefined}
+            className={phoneSection === section ? 'active' : ''}
+            onClick={() => setPhoneSection(section)}
+          >
+            {phoneSectionLabel(section)}
+          </button>
+        ))}
+      </nav>
+    )
+  }
+
+  function renderPhoneBottomNav() {
+    return renderSectionNav('phone-bottom-nav')
   }
 
   function renderDockSlot(slot: DockSlot) {
@@ -2244,7 +2423,7 @@ export default function App() {
   }, [previewController, sceneEntries])
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" data-workspace-mode={workspaceMode}>
       <header className="obs-topbar">
         <div className="obs-brand">
           <strong>SBS Studio</strong>
@@ -2330,7 +2509,15 @@ export default function App() {
 
         <section className="obs-center-stage">
           <div className="obs-stage-toolbar">
-            <div className="obs-stage-title">Program</div>
+            <div className="obs-stage-left">
+              <div className="obs-stage-title">Program</div>
+              <div className="preview-zoom-controls" aria-label="Preview zoom controls">
+                <button aria-label="Zoom out preview" onClick={() => adjustPreviewZoom(-1)} disabled={previewZoom <= PREVIEW_ZOOM_STEPS[0]}>−</button>
+                <span className="preview-zoom-value" aria-label="Preview zoom">{previewZoomLabel}</span>
+                <button aria-label="Zoom in preview" onClick={() => adjustPreviewZoom(1)} disabled={previewZoom >= PREVIEW_ZOOM_STEPS[PREVIEW_ZOOM_STEPS.length - 1]}>+</button>
+                <button aria-label="Fit preview to window" onClick={() => setPreviewZoom(1)}>Fit</button>
+              </div>
+            </div>
             <div className="button-row">
               <button
                 onClick={() => togglePreview().catch((error) => setStatus(String(error)))}
@@ -2343,8 +2530,8 @@ export default function App() {
             </div>
           </div>
 
-          <div className="obs-preview-wrapper panel" ref={previewWrapperRef}>
-            <div className="preview-screen obs-preview-screen">
+          <div className="obs-preview-wrapper panel" ref={previewWrapperRef} onWheel={handlePreviewWheel}>
+            <div className="preview-screen obs-preview-screen" style={previewScreenStyle}>
               <video id="preview-video" autoPlay playsInline />
               <div
                 className="source-overlay"
@@ -2497,7 +2684,7 @@ export default function App() {
                   return (scene.items as any[]).map((item: any) => {
                     if (!item.visible) return null
                     const t = item.transform || {}
-                    const mapped = canvasToPreview(t.position_x || 0, t.position_y || 0, t.width || 640, t.height || 360)
+                    const mapped = canvasToPreviewLocal(t.position_x || 0, t.position_y || 0, t.width || 640, t.height || 360)
                     const isSelected = state.selectedSceneItemId === item.id
   function startResize(e: React.MouseEvent, handle: string) {
     if (!state.selectedSceneItemId || !state.activeSceneId) return
@@ -2639,6 +2826,18 @@ export default function App() {
           })()}
         </section>
 
+        {workspaceMode !== 'desktop' && (
+          <section
+            className="panel adaptive-panel-shell"
+            role="region"
+            aria-label={`${phoneSectionLabel(phoneSection)} workspace panel`}
+          >
+            <div className="adaptive-panel-grip" aria-hidden="true" />
+            {workspaceMode === 'tablet' && renderSectionNav('tablet-section-nav')}
+            {renderAdaptiveSection()}
+          </section>
+        )}
+
         <div className="resize-handle vertical right-edge" onMouseDown={() => setActiveResize('rightWidth')} />
 
         <aside className="obs-right-controls">{renderDockSlot('right')}</aside>
@@ -2666,6 +2865,8 @@ export default function App() {
           <button onClick={() => runCommand(command).then(() => setStatus(`Executed: ${command}`)).catch((error) => setStatus(String(error)))}>Run</button>
         </div>
       </footer>
+
+      {workspaceMode === 'phone' && renderPhoneBottomNav()}
 
       {renderSettingsDialog()}
       {renderSourcePickerDialog()}

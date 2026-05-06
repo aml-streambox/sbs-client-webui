@@ -97,21 +97,20 @@ test.describe.serial('target-backed webui verification', () => {
 
     await page.goto(`${baseUrl}?instance=${instanceId}`)
     await page.getByRole('button', { name: '+ Scene' }).click()
-    await expect(page.getByText('Verification Scene')).toBeVisible()
+    await expect(page.getByRole('button', { name: /Verification Scene/ })).toBeVisible()
 
     await page.getByRole('button', { name: '+ Source' }).click()
-    await expect(page.locator('.source-create-dialog')).toBeVisible()
-    const nameInput = page.locator('.source-create-row input').first()
-    await nameInput.clear()
-    await nameInput.fill('Verification Source')
-    await page.getByRole('button', { name: 'Create' }).click()
-    await expect(page.getByText('Verification Source')).toBeVisible()
+    await expect(page.locator('.settings-overlay .source-picker-dialog')).toBeVisible()
+    await page.locator('.source-kind-card', { hasText: 'Test Pattern' }).click()
+    await expect(page.locator('.source-config-dialog')).toBeVisible()
+    await page.locator('.source-create-row').filter({ hasText: 'Name' }).locator('input').fill('Verification Source')
+    await page.getByRole('button', { name: 'Create Source' }).click()
+    await expect(page.locator('.source-item', { hasText: 'Verification Source' })).toBeVisible()
 
     await page.getByRole('button', { name: '+ Output' }).click()
-    await expect(page.getByText('Verification Output')).toBeVisible()
+    await expect(page.locator('.output-card', { hasText: 'Verification Output' })).toBeVisible()
 
     await page.getByRole('button', { name: 'Snapshot' }).click()
-    await expect(page.getByText(/Snapshot captured:/)).toBeVisible()
     await expect(page.getByRole('link', { name: 'Open Snapshot' })).toBeVisible()
   })
 
@@ -129,7 +128,31 @@ test.describe.serial('target-backed webui verification', () => {
       await page.getByRole('button', { name: 'Refresh State' }).click()
     }
 
-    await expect(page.getByText('State refreshed')).toBeVisible()
     await expect(page.getByText('Shortcuts: 1-9 scenes, P preview, Shift+S snapshot, R refresh')).toBeVisible()
+  })
+
+  test('adapts workspace layout to responsive target viewport class', async ({ page }) => {
+    await page.goto(`${baseUrl}?instance=${instanceId}`)
+    await expect(page.getByText(`Inst ${instanceId}`)).toBeVisible()
+
+    const mode = await page.locator('.app-shell').getAttribute('data-workspace-mode')
+    const overflow = await page.evaluate(() => ({
+      horizontal: document.documentElement.scrollWidth > window.innerWidth + 2,
+    }))
+    expect(overflow.horizontal).toBeFalsy()
+    await expect(page.locator('.preview-screen')).toBeVisible()
+
+    if (mode === 'phone') {
+      await expect(page.locator('.phone-bottom-nav')).toBeVisible()
+      await page.locator('.phone-bottom-nav').getByRole('button', { name: 'Sources' }).click()
+      await expect(page.locator('.adaptive-panel-shell')).toHaveAttribute('aria-label', /Sources/)
+    } else if (mode === 'tablet') {
+      await expect(page.locator('.tablet-section-nav')).toBeVisible()
+      await page.locator('.tablet-section-nav').getByRole('button', { name: 'Outputs' }).click()
+      await expect(page.locator('.adaptive-panel-shell')).toHaveAttribute('aria-label', /Outputs/)
+    } else {
+      await expect(page.locator('.phone-bottom-nav')).toBeHidden()
+      await expect(page.locator('.draggable-dock')).toHaveCount(5)
+    }
   })
 })

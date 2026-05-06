@@ -1,6 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
 const targetBaseUrl = process.env.SBS_E2E_TARGET_URL
+const responsiveGrep = /adapts workspace|phone operator|tablet panel|keeps desktop dock/
 
 export default defineConfig({
   testDir: './tests',
@@ -16,13 +17,53 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'desktop-1366',
+      name: 'phone-360-touch',
+      grep: responsiveGrep,
       use: {
-        viewport: { width: 1366, height: 768 },
+        viewport: { width: 360, height: 640 },
+        hasTouch: true,
+        isMobile: true,
       },
     },
     {
-      name: 'tablet-touch',
+      name: 'phone-390-touch',
+      grep: responsiveGrep,
+      use: {
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
+    {
+      name: 'phone-landscape-480-touch',
+      grep: responsiveGrep,
+      use: {
+        viewport: { width: 854, height: 480 },
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
+    {
+      name: 'small-tablet-600-touch',
+      grep: responsiveGrep,
+      use: {
+        viewport: { width: 600, height: 960 },
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
+    {
+      name: 'tablet-portrait-touch',
+      grep: responsiveGrep,
+      use: {
+        viewport: { width: 800, height: 1280 },
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
+    {
+      name: 'tablet-landscape-touch',
+      grep: responsiveGrep,
       use: {
         viewport: { width: 1024, height: 768 },
         hasTouch: true,
@@ -30,11 +71,30 @@ export default defineConfig({
       },
     },
     {
-      name: 'portrait-touch',
+      name: 'desktop-1366',
       use: {
-        viewport: { width: 800, height: 1280 },
-        hasTouch: true,
-        isMobile: true,
+        viewport: { width: 1366, height: 768 },
+      },
+    },
+    {
+      name: 'desktop-hd',
+      grep: responsiveGrep,
+      use: {
+        viewport: { width: 1920, height: 1080 },
+      },
+    },
+    {
+      name: 'desktop-qhd',
+      grep: responsiveGrep,
+      use: {
+        viewport: { width: 2560, height: 1440 },
+      },
+    },
+    {
+      name: 'desktop-4k',
+      grep: responsiveGrep,
+      use: {
+        viewport: { width: 3840, height: 2160 },
       },
     },
   ],

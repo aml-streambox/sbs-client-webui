@@ -345,6 +345,13 @@ async function installMockSocket(page: Page, scenario = 'default') {
           return
         }
 
+        if (method === 'scene.setActive') {
+          state.state.active_scene_id = requestParams.scene_id
+          publish('scene.changed', { active_scene_id: requestParams.scene_id })
+          respond({ jsonrpc: '2.0', id: request.id, result: { ok: true } })
+          return
+        }
+
         if (method === 'scene.remove') {
           delete state.scenes[requestParams.id]
           if (state.state.active_scene_id === requestParams.id) {
@@ -589,6 +596,120 @@ test('updates scene state from command and pubsub', async ({ page }) => {
 
   await page.getByRole('button', { name: 'Alt' }).click()
   await expect(page.getByRole('button', { name: 'Alt' })).toHaveClass(/active/)
+})
+
+test('zooms preview canvas from toolbar controls', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  const preview = page.locator('.preview-screen')
+  await expect(preview).toBeVisible()
+  await expect.poll(() => preview.evaluate((el: HTMLElement) => el.style.width)).not.toBe('')
+  const zoomValue = page.getByLabel('Preview zoom', { exact: true })
+  await expect(zoomValue).toHaveText('100%')
+  const fitBox = await preview.boundingBox()
+  expect(fitBox).not.toBeNull()
+
+  await page.getByRole('button', { name: 'Zoom in preview' }).click()
+  await expect(zoomValue).toHaveText('125%')
+  const zoomedBox = await preview.boundingBox()
+  expect(zoomedBox).not.toBeNull()
+  expect(zoomedBox!.width).toBeGreaterThan(fitBox!.width)
+
+  await page.getByRole('button', { name: 'Fit preview to window' }).click()
+  await expect(zoomValue).toHaveText('100%')
+})
+
+test('adapts workspace layout to responsive viewport class', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  const mode = await page.locator('.app-shell').getAttribute('data-workspace-mode')
+  const overflow = await page.evaluate(() => ({
+    horizontal: document.documentElement.scrollWidth > window.innerWidth + 2,
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }))
+  expect(overflow.horizontal).toBeFalsy()
+  await expect(page.locator('.preview-screen')).toBeVisible()
+
+  if (mode === 'phone') {
+    await expect(page.locator('.phone-bottom-nav')).toBeVisible()
+    await expect(page.locator('.adaptive-panel-shell')).toBeVisible()
+    await expect(page.locator('.adaptive-panel-shell')).toHaveAttribute('aria-label', /Scenes/)
+  } else if (mode === 'tablet') {
+    await expect(page.locator('.tablet-section-nav')).toBeVisible()
+    await expect(page.locator('.adaptive-panel-shell')).toBeVisible()
+    await expect(page.locator('.phone-bottom-nav')).toBeHidden()
+  } else {
+    await expect(page.locator('.phone-bottom-nav')).toBeHidden()
+    await expect(page.locator('.draggable-dock')).toHaveCount(5)
+  }
+})
+
+test('supports core phone operator flow', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+  const mode = await page.locator('.app-shell').getAttribute('data-workspace-mode')
+  test.skip(mode !== 'phone', 'phone-only responsive flow')
+
+  const nav = page.locator('.phone-bottom-nav')
+  await expect(nav).toBeVisible()
+  await nav.getByRole('button', { name: 'Scenes' }).click()
+  await page.getByRole('button', { name: 'Alt' }).click()
+  await expect(page.getByRole('button', { name: 'Alt' })).toHaveClass(/active/)
+  await page.getByRole('button', { name: 'Main' }).click()
+
+  await nav.getByRole('button', { name: 'Sources' }).click()
+  const sourceItem = page.locator('.adaptive-panel-shell .source-item', { hasText: 'Camera' })
+  await expect(sourceItem).toBeVisible()
+  await sourceItem.getByRole('button', { name: 'Hide' }).click()
+  await expect(sourceItem.getByRole('button', { name: 'Show' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Snapshot' }).click()
+  await expect(page.getByRole('link', { name: 'Open Snapshot' })).toBeVisible()
+  await page.getByRole('banner').getByRole('button', { name: 'Settings' }).click()
+  await expect(page.locator('.settings-dialog')).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+})
+
+test('changes selected tablet panel without desktop dock overflow', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+  const mode = await page.locator('.app-shell').getAttribute('data-workspace-mode')
+  test.skip(mode !== 'tablet', 'tablet-only responsive flow')
+
+  const nav = page.locator('.tablet-section-nav')
+  await expect(nav).toBeVisible()
+  await nav.getByRole('button', { name: 'Sources' }).click()
+  await expect(page.locator('.adaptive-panel-shell')).toHaveAttribute('aria-label', /Sources/)
+  await nav.getByRole('button', { name: 'Outputs' }).click()
+  await expect(page.locator('.adaptive-panel-shell')).toHaveAttribute('aria-label', /Outputs/)
+  const visibleDockCount = await page.locator('.draggable-dock').evaluateAll((docks) => docks.filter((dock) => {
+    const style = window.getComputedStyle(dock as HTMLElement)
+    const box = (dock as HTMLElement).getBoundingClientRect()
+    return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0
+  }).length)
+  expect(visibleDockCount).toBe(0)
+})
+
+test('keeps desktop dock workspace usable up to 4k', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+  const mode = await page.locator('.app-shell').getAttribute('data-workspace-mode')
+  test.skip(mode !== 'desktop', 'desktop-only responsive flow')
+
+  await expect(page.locator('.draggable-dock')).toHaveCount(5)
+  await expect(page.getByRole('heading', { name: 'Scenes' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Sources' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Controls' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Audio Mixer' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Filters' })).toBeVisible()
+  const collapsed = await page.locator('.draggable-dock').evaluateAll((docks) => docks.some((dock) => {
+    const box = dock.getBoundingClientRect()
+    return box.width < 120 || box.height < 60
+  }))
+  expect(collapsed).toBeFalsy()
 })
 
 test('toggles output controls and source visibility', async ({ page }) => {

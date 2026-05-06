@@ -1,0 +1,13 @@
+schema: spec-driven
+
+context: |
+  Project: SBS browser WebUI, a React 19 single page app using plain CSS and Playwright tests.
+  UX reference: desktop layout follows OBS-style dock panels; mobile should be adaptive, not a scaled-down desktop.
+  Constraints: no UI framework dependency by default; preserve desktop dock behavior; target touch and mouse users.
+
+rules:
+  proposal:
+    - Include non-goals for large UI changes.
+    - Call out desktop compatibility explicitly.
+  tasks:
+    - Include Playwright verification for desktop, tablet, and phone viewports.
