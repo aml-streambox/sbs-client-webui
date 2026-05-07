@@ -257,7 +257,7 @@ function onEvent(event: PubSubEvent) {
         webrtcPeerConnection.addIceCandidate(new RTCIceCandidate({
           sdpMLineIndex: data.sdpMLineIndex,
           candidate: data.candidate,
-        })).catch((e) => console.warn('Failed to add ICE candidate:', e))
+        })).catch(() => undefined)
       }
     }
   }
@@ -605,16 +605,12 @@ async function startWebrtcPreview(profile: PreviewProfile) {
       { profile_id: profile.id }
     )
 
-    // Create peer connection
     const pc = new RTCPeerConnection({})
     webrtcPeerConnection = pc;
-    (window as any).__pc = pc
 
     webrtcPreviewStream = new MediaStream()
 
-    // Handle incoming audio/video tracks as one preview stream.
     pc.ontrack = (event) => {
-      console.log('[WebRTC] ontrack:', event.track.kind, 'streams:', event.streams.length)
       const video = document.getElementById('preview-video') as HTMLVideoElement | null
       if (!webrtcPreviewStream) {
         webrtcPreviewStream = new MediaStream()
@@ -624,6 +620,8 @@ async function startWebrtcPreview(profile: PreviewProfile) {
       }
       if (video) {
         video.srcObject = webrtcPreviewStream
+        video.autoplay = true
+        video.playsInline = true
         video.muted = false
         video.volume = 1
         video.play().catch((error) => {
@@ -636,7 +634,6 @@ async function startWebrtcPreview(profile: PreviewProfile) {
       }
     }
 
-    // Send our ICE candidates to the server
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         api.rpc('preview.webrtc.ice', {
@@ -648,7 +645,6 @@ async function startWebrtcPreview(profile: PreviewProfile) {
     }
 
     pc.oniceconnectionstatechange = () => {
-      console.log('[WebRTC] iceConnectionState:', pc.iceConnectionState)
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         state.previewStatus = 'active'
         state.previewMessage = `WebRTC connected`
@@ -660,15 +656,6 @@ async function startWebrtcPreview(profile: PreviewProfile) {
       }
     }
 
-    pc.onconnectionstatechange = () => {
-      console.log('[WebRTC] connectionState:', pc.connectionState)
-    }
-
-    pc.onsignalingstatechange = () => {
-      console.log('[WebRTC] signalingState:', pc.signalingState)
-    }
-
-    // Set remote offer and create answer
     webrtcRemoteDescSet = false
     webrtcIceBuffer = []
     await pc.setRemoteDescription(new RTCSessionDescription({
@@ -677,22 +664,19 @@ async function startWebrtcPreview(profile: PreviewProfile) {
     }))
     webrtcRemoteDescSet = true
 
-    // Flush buffered ICE candidates
-    // Apply candidates from the RPC response first (most reliable)
     if (offerResult.iceCandidates) {
       for (const ice of offerResult.iceCandidates) {
         pc.addIceCandidate(new RTCIceCandidate({
           sdpMLineIndex: ice.sdpMLineIndex,
           candidate: ice.candidate,
-        })).catch((e) => console.warn('Failed to add response ICE candidate:', e))
+        })).catch(() => undefined)
       }
     }
-    // Then any that arrived via pubsub during negotiation
     for (const ice of webrtcIceBuffer) {
       pc.addIceCandidate(new RTCIceCandidate({
         sdpMLineIndex: ice.sdpMLineIndex,
         candidate: ice.candidate,
-      })).catch((e) => console.warn('Failed to add buffered ICE candidate:', e))
+      })).catch(() => undefined)
     }
     webrtcIceBuffer = []
 
@@ -700,7 +684,6 @@ async function startWebrtcPreview(profile: PreviewProfile) {
     await pc.setLocalDescription(answer)
     await waitForIceGatheringComplete(pc)
 
-    // Send answer to server
     await api.rpc('preview.webrtc.answer', {
       profile_id: profile.id,
       sdp: pc.localDescription?.sdp ?? answer.sdp,
