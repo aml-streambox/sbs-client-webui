@@ -739,10 +739,10 @@ test('adds and removes filters from inspector', async ({ page }, testInfo) => {
   await expect(filtersDock.locator('.filter-list-row')).toHaveCount(1)
   await expect(filtersDock.locator('.filter-list-row', { hasText: 'Contrast' })).toHaveAttribute('aria-selected', 'true')
   await expect(filtersDock.locator('input[type="range"]')).toHaveCount(1)
-  await expect(filtersDock.locator('.filter-value')).toHaveText('1.15x')
-  await expect(filtersDock.getByRole('spinbutton', { name: 'contrast amount value' })).toHaveValue('1.15')
+  await expect(filtersDock.locator('.filter-value')).toHaveText('Current: 1.15x - Range: 0.50x to 2.00x')
+  await expect(filtersDock.getByRole('spinbutton', { name: 'Contrast Multiplier value' })).toHaveValue('1.15')
 
-  const contrastSlider = filtersDock.getByRole('slider', { name: 'contrast amount' })
+  const contrastSlider = filtersDock.getByRole('slider', { name: 'Contrast Multiplier' })
   const initialDockOrder = await page.locator('.draggable-dock').evaluateAll((docks) => docks.map((dock) => (dock as HTMLElement).dataset.panel).join('|'))
   if (testInfo.project.name === 'desktop-1366') {
     const box = await contrastSlider.boundingBox()
@@ -755,13 +755,13 @@ test('adds and removes filters from inspector', async ({ page }, testInfo) => {
     await contrastSlider.focus()
     await page.keyboard.press('ArrowRight')
   }
-  await expect.poll(async () => filtersDock.locator('.filter-value').textContent()).not.toBe('1.15x')
+  await expect.poll(async () => filtersDock.locator('.filter-value').textContent()).not.toContain('Current: 1.15x')
   const afterSliderDockOrder = await page.locator('.draggable-dock').evaluateAll((docks) => docks.map((dock) => (dock as HTMLElement).dataset.panel).join('|'))
   expect(afterSliderDockOrder).toBe(initialDockOrder)
 
-  await filtersDock.getByRole('spinbutton', { name: 'contrast amount value' }).fill('1.85')
-  await filtersDock.getByRole('spinbutton', { name: 'contrast amount value' }).press('Enter')
-  await expect(filtersDock.locator('.filter-value')).toHaveText('1.85x')
+  await filtersDock.getByRole('spinbutton', { name: 'Contrast Multiplier value' }).fill('1.85')
+  await filtersDock.getByRole('spinbutton', { name: 'Contrast Multiplier value' }).press('Enter')
+  await expect(filtersDock.locator('.filter-value')).toHaveText('Current: 1.85x - Range: 0.50x to 2.00x')
 
   await filtersDock.getByRole('button', { name: 'Remove selected filter' }).click()
   await expect(filtersDock.locator('.filter-list-row')).toHaveCount(0)

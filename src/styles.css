@@ -902,6 +902,14 @@ select {
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
+.obs-volume-value {
+  height: 13px;
+  padding: 0 5px 1px;
+  color: #ffffff;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+}
 .obs-audio-body {
   flex: 1;
   display: grid;
@@ -1108,6 +1116,22 @@ select {
   font-size: 11px;
 }
 .filter-property-row > span { text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; }
+.filter-label-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.filter-label-block > span {
+  color: var(--text);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+}
+.filter-label-block > small {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
+}
 .filter-control-row { display: flex; align-items: center; gap: 5px; min-width: 0; }
 .filter-control-row input[type="range"] {
   min-width: 0;
@@ -1119,7 +1143,7 @@ select {
 }
 .filter-number-input { width: 68px; padding: 3px 5px; font-size: 11px; font-variant-numeric: tabular-nums; }
 .filter-unit { min-width: 12px; color: var(--muted); font-size: 10px; }
-.filter-value { color: var(--text); font-variant-numeric: tabular-nums; }
+.filter-value { color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.25; }
 .properties-empty { margin: auto; }
 
 .filter-panel-summary {

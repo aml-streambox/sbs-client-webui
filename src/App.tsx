@@ -494,6 +494,12 @@ export default function App() {
     return `${db.toFixed(1)} dB`
   }
 
+  function formatAudioVolume(value: unknown) {
+    const volume = Number(value)
+    if (!Number.isFinite(volume)) return '100%'
+    return `${Math.round(volume * 100)}%`
+  }
+
   function audioStateForSource(source: any) {
     return source?.audio ?? { enabled: false, device: null, volume: 1, mute: false, monitor: false }
   }
@@ -839,12 +845,28 @@ export default function App() {
     return `${Math.round(value)} deg`
   }
 
+  function hdrFilterHelp(key: string) {
+    if (key === 'saturation') return 'Color intensity after tone mapping; 100% is unchanged.'
+    if (key === 'brightness') return 'Output brightness offset; 0% is neutral.'
+    return 'Hue rotation in degrees; 0 deg is unchanged.'
+  }
+
+  function formatHdrFilterRange(key: string) {
+    const range = hdrFilterParamRange(key)
+    const min = key === 'hue' ? `${range.min} deg` : `${Math.round(range.min * 100)}%`
+    const max = key === 'hue' ? `${range.max} deg` : `${Math.round(range.max * 100)}%`
+    return `${min} to ${max}`
+  }
+
   function renderHdrFilterSlider(filter: any, key: string, label: string) {
     const range = hdrFilterParamRange(key)
     const unit = key === 'hue' ? 'deg' : '%'
     return (
       <label className="filter-property-row">
-        <span>{label}</span>
+        <div className="filter-label-block">
+          <span>{label}</span>
+          <small>{hdrFilterHelp(key)}</small>
+        </div>
         <div className="filter-control-row">
           <input
             type="range"
@@ -862,7 +884,7 @@ export default function App() {
           />
           <span className="filter-unit">{unit}</span>
         </div>
-        <small className="filter-value">{formatHdrFilterParam(filter, key)}</small>
+        <small className="filter-value">Current: {formatHdrFilterParam(filter, key)} - Range: {formatHdrFilterRange(key)}</small>
       </label>
     )
   }
@@ -882,6 +904,29 @@ export default function App() {
       return `${amount.toFixed(2)}x`
     }
     return `${Math.round(amount * 100)}%`
+  }
+
+  function filterAmountLabel(filter: any) {
+    if (filter.type === 'brightness') return 'Brightness Offset'
+    if (filter.type === 'contrast') return 'Contrast Multiplier'
+    if (filter.type === 'lut' || filter.type === 'hdr_to_sdr_lut') return 'LUT Strength'
+    if (filter.type === 'grayscale') return 'Grayscale Strength'
+    return 'Effect Strength'
+  }
+
+  function filterAmountHelp(filter: any) {
+    if (filter.type === 'brightness') return 'Adds or removes brightness; 0 is neutral.'
+    if (filter.type === 'contrast') return 'Multiplies contrast; 1.00x is neutral.'
+    if (filter.type === 'lut' || filter.type === 'hdr_to_sdr_lut') return 'Blends the LUT with the original image.'
+    if (filter.type === 'grayscale') return '0% keeps color, 100% is fully grayscale.'
+    return 'Blend amount for this effect.'
+  }
+
+  function formatFilterAmountRange(filter: any) {
+    const range = filterRangeConfig(filter)
+    const min = { params: { amount: range.min }, type: filter.type }
+    const max = { params: { amount: range.max }, type: filter.type }
+    return `${formatFilterAmount(min)} to ${formatFilterAmount(max)}`
   }
 
   function filterDisplayName(type: string) {
@@ -913,6 +958,32 @@ export default function App() {
       return { min: 0, max: 1, step: 0.01, scale: 100 }
     }
     return { min: 0, max: 1, step: 0.01, scale: 100 }
+  }
+
+  function filterParamHelp(filter: any, key: string) {
+    if (key === 'saturation') return 'Color intensity; 100% is unchanged.'
+    if (key === 'brightness') return 'Brightness offset; 0% is neutral.'
+    if (key === 'contrast') return 'Contrast multiplier; 1.00x is unchanged.'
+    if (key === 'gamma') return 'Midtone curve; 1.00x is unchanged.'
+    if (key === 'hue') return 'Hue rotation; 0 deg is unchanged.'
+    if (filter.type === 'luma_key' && key === 'min') return 'Pixels darker than this become transparent.'
+    if (filter.type === 'luma_key' && key === 'max') return 'Pixels brighter than this remain opaque.'
+    if (key === 'similarity') return 'How close a color must be to the key color.'
+    if (key === 'smoothness') return 'Softens the cutout edge to reduce harsh borders.'
+    if (key === 'spill') return 'Suppresses leftover key color on edges.'
+    return 'Adjusts this filter parameter.'
+  }
+
+  function formatFilterParamValue(key: string, value: number) {
+    if (key === 'hue') return `${Math.round(value)} deg`
+    if (key === 'brightness') return `${value >= 0 ? '+' : ''}${Math.round(value * 100)}%`
+    if (key === 'contrast' || key === 'gamma') return `${value.toFixed(2)}x`
+    return `${Math.round(value * 100)}%`
+  }
+
+  function formatFilterParamRange(key: string) {
+    const range = filterParamRange(key)
+    return `${formatFilterParamValue(key, range.min)} to ${formatFilterParamValue(key, range.max)}`
   }
 
   function filterParamFallback(filter: any, key: string) {
@@ -963,7 +1034,10 @@ export default function App() {
     const unit = key === 'hue' ? 'deg' : '%'
     return (
       <label className="filter-property-row">
-        <span>{label}</span>
+        <div className="filter-label-block">
+          <span>{label}</span>
+          <small>{filterParamHelp(filter, key)}</small>
+        </div>
         <div className="filter-control-row">
           <input
             type="range"
@@ -981,7 +1055,7 @@ export default function App() {
           />
           <span className="filter-unit">{unit}</span>
         </div>
-        <small className="filter-value">{key === 'hue' ? `${Math.round(value)} deg` : `${Math.round(value * 100)}%`}</small>
+        <small className="filter-value">Current: {formatFilterParamValue(key, value)} - Range: {formatFilterParamRange(key)}</small>
       </label>
     )
   }
@@ -1733,11 +1807,14 @@ export default function App() {
                   </>
                 ) : (
                   <label className="filter-property-row">
-                    <span>Amount</span>
+                    <div className="filter-label-block">
+                      <span>{filterAmountLabel(selectedFilter)}</span>
+                      <small>{filterAmountHelp(selectedFilter)}</small>
+                    </div>
                     <div className="filter-control-row">
                       <input
                         type="range"
-                        aria-label={`${selectedFilter.type} amount`}
+                        aria-label={filterAmountLabel(selectedFilter)}
                         draggable={false}
                         min={filterDisplayRangeConfig(selectedFilter).min}
                         max={filterDisplayRangeConfig(selectedFilter).max}
@@ -1756,7 +1833,7 @@ export default function App() {
                       <input
                         className="filter-number-input"
                         type="number"
-                        aria-label={`${selectedFilter.type} amount value`}
+                        aria-label={`${filterAmountLabel(selectedFilter)} value`}
                         draggable={false}
                         min={filterDisplayRangeConfig(selectedFilter).min}
                         max={filterDisplayRangeConfig(selectedFilter).max}
@@ -1776,7 +1853,7 @@ export default function App() {
                       />
                       <span className="filter-unit">{filterAmountUnit(selectedFilter)}</span>
                     </div>
-                    <small className="filter-value">{formatFilterAmount(selectedFilter)}</small>
+                    <small className="filter-value">Current: {formatFilterAmount(selectedFilter)} - Range: {formatFilterAmountRange(selectedFilter)}</small>
                   </label>
                 )}
                 {selectedFilter.type === 'hdr_to_sdr_lut' && (
@@ -2088,6 +2165,7 @@ export default function App() {
                 const enabled = audio.enabled !== false
                 const muted = Boolean(audio.mute || meter.effective_mute)
                 const active = Boolean(meter.active_in_scene)
+                const volumeValue = Number(audio.volume ?? 1)
                 const setAudio = (patch: Record<string, unknown>) => updateSceneItemAudio(state.activeSceneId || '', item, source, patch)
                 return (
                   <div key={item.id} className={`obs-audio-strip ${enabled ? 'enabled' : 'disabled'} ${muted ? 'muted' : ''}`}>
@@ -2096,6 +2174,7 @@ export default function App() {
                       {source.name}
                     </button>
                     <div className="obs-audio-db">{formatAudioDb(meter.level_db)}</div>
+                    <div className="obs-volume-value" title="Volume gain: 100% is unchanged; 200% is +6 dB gain.">{formatAudioVolume(volumeValue)}</div>
                     <div className="obs-audio-body">
                       <input
                         className="obs-volume-fader"
@@ -2103,9 +2182,9 @@ export default function App() {
                         min="0"
                         max="2"
                         step="0.05"
-                        value={Number(audio.volume ?? 1)}
+                        value={volumeValue}
                         onChange={(event) => setAudio({ volume: Number(event.target.value), enabled: true, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(`Audio updated: ${source.name}`)).catch((error) => setStatus(String(error)))}
-                        aria-label={`${source.name} volume`}
+                        aria-label={`${source.name} volume, ${formatAudioVolume(volumeValue)}`}
                       />
                       <div className="obs-meter-wrap">
                         <div className="obs-meter-track" aria-label={`${source.name} audio level`}>
@@ -2127,6 +2206,7 @@ export default function App() {
                 <div className="obs-audio-scope">Global</div>
                 <div className="obs-audio-name static">Master</div>
                 <div className="obs-audio-db">{formatAudioDb(masterLevel.level_db)}</div>
+                <div className="obs-volume-value" title="Master volume: 100% is unchanged; 200% is +6 dB gain.">{formatAudioVolume(state.audio.master_volume)}</div>
                 <div className="obs-audio-body">
                   <input
                     className="obs-volume-fader"
@@ -2136,7 +2216,7 @@ export default function App() {
                     step="0.05"
                     value={state.audio.master_volume}
                     onChange={(event) => setMasterAudio(Number(event.target.value), state.audio.master_mute).then(() => setStatus('Master audio updated')).catch((error) => setStatus(String(error)))}
-                    aria-label="Master volume"
+                    aria-label={`Master volume, ${formatAudioVolume(state.audio.master_volume)}`}
                   />
                   <div className="obs-meter-wrap">
                     <div className="obs-meter-track" aria-label="Master audio level">
