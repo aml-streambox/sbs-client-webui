@@ -4,23 +4,22 @@ import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, 
 
 import type { SourceKind, SourceKindField } from './types'
 
-type DockSlot = 'left-top' | 'left-bottom' | 'right' | 'bottom-left' | 'bottom-middle'
-type DockPanel = 'scenes' | 'sources' | 'controls' | 'mixer' | 'transitions' | 'filters'
+type DockRegion = 'left' | 'right' | 'bottom'
+type DockPanel = 'scenes' | 'sources' | 'controls' | 'mixer' | 'transitions'
 type WorkspaceMode = 'desktop' | 'tablet' | 'phone'
 type PhoneSection = 'scenes' | 'sources' | 'audio' | 'outputs' | 'more'
 type ResizeKey = 'leftWidth' | 'rightWidth' | 'bottomHeight' | 'leftTopRatio' | 'bottomLeftRatio'
+type DockLayout = Record<DockRegion, DockPanel[]>
 
 const DOCK_STORAGE_KEY = 'sbs-webui-dock-layout-v1'
 const DOCK_SIZE_STORAGE_KEY = 'sbs-webui-dock-sizes-v1'
 const DOCK_DRAG_MIME = 'application/x-sbs-dock-panel'
-const VALID_DOCK_PANELS = new Set<DockPanel>(['scenes', 'sources', 'controls', 'mixer', 'transitions', 'filters'])
+const VALID_DOCK_PANELS = new Set<DockPanel>(['scenes', 'sources', 'controls', 'mixer', 'transitions'])
 
-const DEFAULT_DOCK_LAYOUT: Record<DockSlot, DockPanel> = {
-  'left-top': 'scenes',
-  'left-bottom': 'sources',
-  'right': 'controls',
-  'bottom-left': 'mixer',
-  'bottom-middle': 'filters',
+const DEFAULT_DOCK_LAYOUT: DockLayout = {
+  left: ['scenes', 'sources'],
+  right: ['controls'],
+  bottom: ['mixer', 'transitions'],
 }
 
 const PREVIEW_ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
@@ -39,27 +38,48 @@ const DEFAULT_DOCK_SIZES = {
   bottomLeftRatio: 1.4,
 }
 
-function loadDockLayout(): Record<DockSlot, DockPanel> {
+function normalizeDockLayout(input: unknown): DockLayout {
+  const next: DockLayout = { left: [], right: [], bottom: [] }
+  const addPanel = (region: DockRegion, panel: unknown) => {
+    if (!VALID_DOCK_PANELS.has(panel as DockPanel)) return
+    if (next.left.includes(panel as DockPanel) || next.right.includes(panel as DockPanel) || next.bottom.includes(panel as DockPanel)) return
+    next[region].push(panel as DockPanel)
+  }
+
+  if (input && typeof input === 'object') {
+    const parsed = input as Record<string, unknown>
+    if (Array.isArray(parsed.left) || Array.isArray(parsed.right) || Array.isArray(parsed.bottom)) {
+      for (const panel of (parsed.left as unknown[]) ?? []) addPanel('left', panel)
+      for (const panel of (parsed.right as unknown[]) ?? []) addPanel('right', panel)
+      for (const panel of (parsed.bottom as unknown[]) ?? []) addPanel('bottom', panel)
+    } else {
+      addPanel('left', parsed['left-top'])
+      addPanel('left', parsed['left-bottom'])
+      addPanel('right', parsed.right)
+      addPanel('bottom', parsed['bottom-left'])
+      addPanel('bottom', parsed['bottom-middle'])
+    }
+  }
+
+  for (const panel of DEFAULT_DOCK_LAYOUT.left) addPanel('left', panel)
+  for (const panel of DEFAULT_DOCK_LAYOUT.right) addPanel('right', panel)
+  for (const panel of DEFAULT_DOCK_LAYOUT.bottom) addPanel('bottom', panel)
+  return next
+}
+
+function loadDockLayout(): DockLayout {
   try {
     const raw = window.localStorage.getItem(DOCK_STORAGE_KEY)
     if (!raw) {
       return DEFAULT_DOCK_LAYOUT
     }
-    const parsed = JSON.parse(raw) as Partial<Record<DockSlot, string>>
-    const next = { ...DEFAULT_DOCK_LAYOUT }
-    for (const slot of Object.keys(DEFAULT_DOCK_LAYOUT) as DockSlot[]) {
-      const panel = parsed[slot]
-      if (panel && VALID_DOCK_PANELS.has(panel as DockPanel)) {
-        next[slot] = panel as DockPanel
-      }
-    }
-    return next
+    return normalizeDockLayout(JSON.parse(raw))
   } catch {
     return DEFAULT_DOCK_LAYOUT
   }
 }
 
-function saveDockLayout(layout: Record<DockSlot, DockPanel>) {
+function saveDockLayout(layout: DockLayout) {
   window.localStorage.setItem(DOCK_STORAGE_KEY, JSON.stringify(layout))
 }
 
@@ -103,7 +123,7 @@ export default function App() {
   const [sourceCreateConfig, setSourceCreateConfig] = useState<Record<string, string>>({})
   const [assetUploadStatus, setAssetUploadStatus] = useState<Record<string, { state: 'reading' | 'uploading' | 'done' | 'error'; message: string }>>({})
   const [previewController, setPreviewController] = useState<{ stop: () => Promise<void> } | null>(null)
-  const [dockLayout, setDockLayout] = useState<Record<DockSlot, DockPanel>>(DEFAULT_DOCK_LAYOUT)
+  const [dockLayout, setDockLayout] = useState<DockLayout>(() => loadDockLayout())
   const [dragPanel, setDragPanel] = useState<DockPanel | null>(null)
   const [dockSizes, setDockSizes] = useState(DEFAULT_DOCK_SIZES)
   const [activeResize, setActiveResize] = useState<ResizeKey | null>(null)
@@ -188,6 +208,11 @@ export default function App() {
       }
     : undefined
   const previewZoomLabel = `${Math.round(previewZoom * 100)}%`
+  const leftDockEmpty = dockLayout.left.length === 0
+  const rightDockEmpty = dockLayout.right.length === 0
+  const bottomDockEmpty = dockLayout.bottom.length === 0
+  const bottomDockCount = dockLayout.bottom.length
+  const bottomDockColumns = `${bottomDockCount > 0 ? `repeat(${bottomDockCount}, minmax(180px, 1fr))` : ''}${dragPanel ? ' minmax(18px, 0.05fr)' : ''}`.trim() || 'none'
 
   function adjustPreviewZoom(direction: -1 | 1) {
     setPreviewZoom((current) => {
@@ -1279,19 +1304,33 @@ export default function App() {
     )
   }
 
-  function movePanel(targetSlot: DockSlot) {
+  function movePanel(targetRegion: DockRegion, targetIndex: number) {
     if (!dragPanel) {
       return
     }
-    const currentSlot = (Object.keys(dockLayout) as DockSlot[]).find((slot) => dockLayout[slot] === dragPanel)
-    if (!currentSlot || currentSlot === targetSlot) {
+    let sourceRegion: DockRegion | null = null
+    let sourceIndex = -1
+    for (const region of Object.keys(dockLayout) as DockRegion[]) {
+      const index = dockLayout[region].indexOf(dragPanel)
+      if (index >= 0) {
+        sourceRegion = region
+        sourceIndex = index
+        break
+      }
+    }
+    if (!sourceRegion || sourceIndex < 0) {
       return
     }
-    const nextLayout = {
-      ...dockLayout,
-      [currentSlot]: dockLayout[targetSlot],
-      [targetSlot]: dragPanel,
+    const nextLayout: DockLayout = {
+      left: [...dockLayout.left],
+      right: [...dockLayout.right],
+      bottom: [...dockLayout.bottom],
     }
+    nextLayout[sourceRegion].splice(sourceIndex, 1)
+    const adjustedIndex = sourceRegion === targetRegion && sourceIndex < targetIndex
+      ? targetIndex - 1
+      : targetIndex
+    nextLayout[targetRegion].splice(Math.max(0, Math.min(adjustedIndex, nextLayout[targetRegion].length)), 0, dragPanel)
     setDockLayout(nextLayout)
     saveDockLayout(nextLayout)
   }
@@ -2238,15 +2277,6 @@ export default function App() {
       )
     }
 
-    if (panel === 'filters') {
-      return (
-        <>
-          <div className="panel-title-row"><h2>Filters</h2></div>
-          {renderFilterEditor()}
-        </>
-      )
-    }
-
     if (panel === 'transitions') {
       return (
         <>
@@ -2352,10 +2382,10 @@ export default function App() {
     return renderSectionNav('phone-bottom-nav')
   }
 
-  function renderDockSlot(slot: DockSlot) {
-    const panel = dockLayout[slot]
+  function renderDockPanel(panel: DockPanel, region: DockRegion, index: number) {
     return (
       <section
+        key={panel}
         className="panel obs-dock draggable-dock"
         onDragOver={(event) => {
           if (Array.from(event.dataTransfer.types).includes(DOCK_DRAG_MIME)) {
@@ -2368,7 +2398,7 @@ export default function App() {
             return
           }
           event.preventDefault()
-          movePanel(slot)
+          movePanel(region, index)
           setDragPanel(null)
         }}
         data-panel={panel}
@@ -2385,6 +2415,58 @@ export default function App() {
         >Drag</div>
         {renderDock(panel)}
       </section>
+    )
+  }
+
+  function renderDockRegion(region: DockRegion) {
+    const panels = dockLayout[region]
+    const showTail = Boolean(dragPanel) && region === 'bottom'
+    return (
+      <>
+        {panels.map((panel, index) => renderDockPanel(panel, region, index))}
+        {showTail ? <div
+          className={`dock-drop-tail ${panels.length === 0 ? 'empty' : ''}`}
+          onDragOver={(event) => {
+            if (Array.from(event.dataTransfer.types).includes(DOCK_DRAG_MIME)) {
+              event.preventDefault()
+            }
+          }}
+          onDrop={(event) => {
+            if (!Array.from(event.dataTransfer.types).includes(DOCK_DRAG_MIME)) {
+              setDragPanel(null)
+              return
+            }
+            event.preventDefault()
+            movePanel(region, panels.length)
+            setDragPanel(null)
+          }}
+        /> : null}
+      </>
+    )
+  }
+
+  function renderEmptyDockDropTarget(region: DockRegion) {
+    if (!dragPanel || dockLayout[region].length > 0) {
+      return null
+    }
+    return (
+      <div
+        className={`empty-dock-drop-target ${region}`}
+        onDragOver={(event) => {
+          if (Array.from(event.dataTransfer.types).includes(DOCK_DRAG_MIME)) {
+            event.preventDefault()
+          }
+        }}
+        onDrop={(event) => {
+          if (!Array.from(event.dataTransfer.types).includes(DOCK_DRAG_MIME)) {
+            setDragPanel(null)
+            return
+          }
+          event.preventDefault()
+          movePanel(region, 0)
+          setDragPanel(null)
+        }}
+      />
     )
   }
 
@@ -2570,19 +2652,24 @@ export default function App() {
       <main
         className="obs-layout"
         style={{
-          ['--obs-left-width' as string]: `${dockSizes.leftWidth}px`,
-          ['--obs-right-width' as string]: `${dockSizes.rightWidth}px`,
-          ['--obs-bottom-height' as string]: `${dockSizes.bottomHeight}px`,
+          ['--obs-left-width' as string]: leftDockEmpty ? '0px' : `${dockSizes.leftWidth}px`,
+          ['--obs-left-split-width' as string]: leftDockEmpty ? '0px' : '4px',
+          ['--obs-right-width' as string]: rightDockEmpty ? '0px' : `${dockSizes.rightWidth}px`,
+          ['--obs-right-split-width' as string]: rightDockEmpty ? '0px' : '4px',
+          ['--obs-bottom-height' as string]: bottomDockEmpty ? '0px' : `${dockSizes.bottomHeight}px`,
+          ['--obs-bottom-split-height' as string]: bottomDockEmpty ? '0px' : '4px',
           ['--obs-left-top-ratio' as string]: `${dockSizes.leftTopRatio}fr`,
           ['--obs-left-bottom-ratio' as string]: `${1 - dockSizes.leftTopRatio}fr`,
           ['--obs-bottom-left-ratio' as string]: `${dockSizes.bottomLeftRatio}fr`,
           ['--obs-bottom-right-ratio' as string]: `1fr`,
+          ['--obs-bottom-columns' as string]: bottomDockColumns,
         }}
+        data-left-empty={leftDockEmpty ? 'true' : 'false'}
+        data-right-empty={rightDockEmpty ? 'true' : 'false'}
+        data-bottom-empty={bottomDockEmpty ? 'true' : 'false'}
       >
         <aside className="obs-left-stack">
-          {renderDockSlot('left-top')}
-          <div className="resize-handle horizontal" onMouseDown={() => setActiveResize('leftTopRatio')} />
-          {renderDockSlot('left-bottom')}
+          {renderDockRegion('left')}
         </aside>
 
         <div className="resize-handle vertical left-edge" onMouseDown={() => setActiveResize('leftWidth')} />
@@ -2920,15 +3007,16 @@ export default function App() {
 
         <div className="resize-handle vertical right-edge" onMouseDown={() => setActiveResize('rightWidth')} />
 
-        <aside className="obs-right-controls">{renderDockSlot('right')}</aside>
+        <aside className="obs-right-controls">{renderDockRegion('right')}</aside>
 
         <section className="obs-bottom-row">
-          {renderDockSlot('bottom-left')}
-          <div className="resize-handle vertical bottom-split-one" onMouseDown={() => setActiveResize('bottomLeftRatio')} />
-          {renderDockSlot('bottom-middle')}
+          {renderDockRegion('bottom')}
         </section>
 
         <div className="resize-handle horizontal bottom-edge" onMouseDown={() => setActiveResize('bottomHeight')} />
+        {renderEmptyDockDropTarget('left')}
+        {renderEmptyDockDropTarget('right')}
+        {renderEmptyDockDropTarget('bottom')}
       </main>
 
       <footer className="obs-statusbar">

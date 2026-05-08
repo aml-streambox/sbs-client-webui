@@ -206,10 +206,11 @@ select {
 
 /* ── Main Layout ─────────────────────────────────────── */
 .obs-layout {
+  position: relative;
   flex: 1;
   display: grid;
-  grid-template-columns: var(--obs-left-width) 4px minmax(0,1fr) 4px var(--obs-right-width);
-  grid-template-rows: minmax(0,1fr) 4px var(--obs-bottom-height);
+  grid-template-columns: var(--obs-left-width) var(--obs-left-split-width, 4px) minmax(0,1fr) var(--obs-right-split-width, 4px) var(--obs-right-width);
+  grid-template-rows: minmax(0,1fr) var(--obs-bottom-split-height, 4px) var(--obs-bottom-height);
   grid-template-areas:
     "left leftsplit center rightsplit right"
     "bottomresize bottomresize bottomresize bottomresize bottomresize"
@@ -222,9 +223,10 @@ select {
 .obs-left-stack {
   grid-area: left;
   display: grid;
-  grid-template-rows: var(--obs-left-top-ratio) 4px var(--obs-left-bottom-ratio);
-  gap: 0;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 4px;
   min-height: 0;
+  overflow: hidden;
 }
 .obs-center-stage {
   grid-area: center;
@@ -233,14 +235,59 @@ select {
   gap: 0;
   min-width: 0;
 }
-.obs-right-controls { grid-area: right; min-height: 0; }
+.obs-right-controls {
+  grid-area: right;
+  display: grid;
+  grid-auto-rows: minmax(0, 1fr);
+  gap: 4px;
+  min-height: 0;
+  overflow: hidden;
+}
 .obs-bottom-row {
   grid-area: bottom;
   display: grid;
-  grid-template-columns: var(--obs-bottom-left-ratio) 4px var(--obs-bottom-right-ratio);
-  gap: 0;
+  grid-template-columns: var(--obs-bottom-columns, repeat(2, minmax(180px, 1fr)));
+  gap: 4px;
   min-height: 0;
   overflow: hidden;
+}
+.obs-layout[data-left-empty="true"] .obs-left-stack,
+.obs-layout[data-left-empty="true"] .left-edge,
+.obs-layout[data-right-empty="true"] .obs-right-controls,
+.obs-layout[data-right-empty="true"] .right-edge,
+.obs-layout[data-bottom-empty="true"] .obs-bottom-row,
+.obs-layout[data-bottom-empty="true"] .bottom-edge {
+  display: none;
+}
+
+.empty-dock-drop-target {
+  position: absolute;
+  z-index: 40;
+  background: transparent;
+  border: 1px solid transparent;
+  pointer-events: auto;
+}
+.empty-dock-drop-target:hover {
+  border-color: var(--accent-light);
+  background: rgba(58,123,200,0.08);
+}
+.empty-dock-drop-target.left {
+  left: 0;
+  top: 0;
+  bottom: var(--obs-bottom-height);
+  width: 24px;
+}
+.empty-dock-drop-target.right {
+  right: 0;
+  top: 0;
+  bottom: var(--obs-bottom-height);
+  width: 24px;
+}
+.empty-dock-drop-target.bottom {
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 24px;
 }
 
 .adaptive-panel-shell { display: none; }
@@ -304,6 +351,26 @@ select {
   flex-direction: column;
 }
 .draggable-dock { display: flex; flex-direction: column; min-height: 0; }
+.dock-drop-tail {
+  min-height: 22px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.dock-drop-tail.empty {
+  min-height: 100%;
+}
+.dock-drop-tail.empty:hover,
+.dock-drop-tail:hover {
+  border-color: var(--accent-light);
+  background: rgba(58,123,200,0.08);
+}
 
 /* ── Resize Handles ──────────────────────────────────── */
 .resize-handle { background: transparent; border-radius: 0; opacity: 1; }
@@ -1463,7 +1530,10 @@ select {
       "bottom bottom";
   }
   .obs-right-controls { min-height: 140px; }
-  .obs-bottom-row { grid-template-columns: 1fr; min-height: 180px; }
+  .obs-bottom-row {
+    grid-template-columns: var(--obs-bottom-columns, repeat(2, minmax(180px, 1fr)));
+    min-height: 180px;
+  }
 }
 
 @media (max-width: 920px) {
