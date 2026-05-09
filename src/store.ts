@@ -454,7 +454,7 @@ export async function getEncoderConfig() {
   return api.rpc('encoder.getConfig', {})
 }
 
-export async function updateEncoderConfig(config: { codec?: string; bitrate_kbps?: number; gop_size?: number }) {
+export async function updateEncoderConfig(config: { codec?: string; bitrate_kbps?: number; gop_size?: number; keyframe_interval?: number; gop_preset?: string; enable_b_frames?: boolean; rc_mode?: number }) {
   return api.rpc('encoder.updateConfig', config)
 }
 

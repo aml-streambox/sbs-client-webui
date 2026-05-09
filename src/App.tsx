@@ -141,8 +141,7 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<'canvas' | 'encoder' | 'preview' | 'output'>('canvas')
   const [settingsCanvas, setSettingsCanvas] = useState({ width: 1920, height: 1080, fps_num: 60, fps_den: 1, color_mode: 'sdr', background_color: '#000000' })
   const [editingOutputId, setEditingOutputId] = useState<string | null>(null)
-  const [editEncoder, setEditEncoder] = useState<Record<string, string>>({})
-  const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: '20000', gop_size: '60' })
+  const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: '20000', keyframe_interval: '60', gop_preset: 'low_delay', enable_b_frames: false, rc_mode: '0' })
   const [editOutputTransport, setEditOutputTransport] = useState<Record<string, string>>({})
   const [previewEncoder, setPreviewEncoder] = useState({ width: '1280', height: '720', framerate: '30', bitrate_kbps: '2500' })
   const [fadeDurationMs, setFadeDurationMs] = useState('2000')
@@ -262,17 +261,6 @@ export default function App() {
       y: cy * sy,
       w: cw * sx,
       h: ch * sy,
-    }
-  }
-
-  function previewToCanvas(px: number, py: number, _ch = 0) {
-    const pr = getPreviewRect()
-    if (!pr) return { x: 0, y: 0 }
-    const localX = px - pr.offsetX
-    const localY = py - pr.offsetY
-    return {
-      x: Math.round(localX / pr.width * canvasW),
-      y: Math.round(localY / pr.height * canvasH),
     }
   }
 
@@ -714,11 +702,6 @@ export default function App() {
     if (!name) return
     await updateSource(sourceId, { name })
     setStatus(`Renamed source: ${name}`)
-  }
-
-  async function handleUpdateSourceConfig(sourceId: string, config: Record<string, string>) {
-    await updateSource(sourceId, { config })
-    setStatus(`Updated source config: ${sourceId}`)
   }
 
   async function handleCreateOutput() {
@@ -1359,7 +1342,10 @@ export default function App() {
       setSharedEncoder({
         codec: cfg.codec || 'h265',
         bitrate_kbps: String(cfg.bitrate_kbps || 20000),
-        gop_size: String(cfg.gop_size || 60),
+        keyframe_interval: String(cfg.keyframe_interval || cfg.gop_size || 60),
+        gop_preset: cfg.gop_preset || (cfg.enable_b_frames ? 'b_frames' : 'low_delay'),
+        enable_b_frames: Boolean(cfg.enable_b_frames),
+        rc_mode: String(cfg.rc_mode ?? 0),
       })
     }).catch(() => {})
     setSettingsTab('canvas')
@@ -1394,7 +1380,10 @@ export default function App() {
       await updateEncoderConfig({
         codec: sharedEncoder.codec,
         bitrate_kbps: Number(sharedEncoder.bitrate_kbps),
-        gop_size: Number(sharedEncoder.gop_size),
+        keyframe_interval: Number(sharedEncoder.keyframe_interval),
+        gop_preset: sharedEncoder.gop_preset,
+        enable_b_frames: sharedEncoder.enable_b_frames,
+        rc_mode: Number(sharedEncoder.rc_mode),
       }).then(() => setStatus('Encoder config updated')).catch((e) => setStatus(String(e)))
     } else if (settingsTab === 'preview') {
       const wasActive = Boolean(previewController)
@@ -1503,11 +1492,25 @@ export default function App() {
             </div>
           </div>
           <div className="settings-row">
-            <label>GOP Size</label>
+            <label>GOP Preset</label>
+            <select value={sharedEncoder.gop_preset} onChange={(e) => setSharedEncoder((s) => ({ ...s, gop_preset: e.target.value, enable_b_frames: e.target.value === 'b_frames' }))}>
+              <option value="low_delay">Low delay (IP only)</option>
+              <option value="b_frames">B-frames enabled</option>
+            </select>
+          </div>
+          <div className="settings-row">
+            <label>Keyframe Interval</label>
             <div className="settings-inline">
-              <input type="number" value={sharedEncoder.gop_size} onChange={(e) => setSharedEncoder((s) => ({ ...s, gop_size: e.target.value }))} />
+              <input type="number" value={sharedEncoder.keyframe_interval} onChange={(e) => setSharedEncoder((s) => ({ ...s, keyframe_interval: e.target.value }))} />
               <span>frames</span>
             </div>
+          </div>
+          <div className="settings-row">
+            <label>Rate Control</label>
+            <select value={sharedEncoder.rc_mode} onChange={(e) => setSharedEncoder((s) => ({ ...s, rc_mode: e.target.value }))}>
+              <option value="0">VBR</option>
+              <option value="1">CBR</option>
+            </select>
           </div>
         </>
       )
@@ -1630,7 +1633,10 @@ export default function App() {
                   setSharedEncoder({
                     codec: cfg.codec || 'h265',
                     bitrate_kbps: String(cfg.bitrate_kbps || 20000),
-                    gop_size: String(cfg.gop_size || 60),
+                    keyframe_interval: String(cfg.keyframe_interval || cfg.gop_size || 60),
+                    gop_preset: cfg.gop_preset || (cfg.enable_b_frames ? 'b_frames' : 'low_delay'),
+                    enable_b_frames: Boolean(cfg.enable_b_frames),
+                    rc_mode: String(cfg.rc_mode ?? 0),
                   })
                 }).catch(() => {})
                 setSettingsTab('encoder')
