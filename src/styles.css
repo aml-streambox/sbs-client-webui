@@ -259,7 +259,6 @@ select {
 .obs-layout[data-bottom-empty="true"] .bottom-edge {
   display: none;
 }
-
 .empty-dock-drop-target {
   position: absolute;
   z-index: 40;
@@ -289,7 +288,6 @@ select {
   bottom: 0;
   height: 24px;
 }
-
 .adaptive-panel-shell { display: none; }
 .adaptive-panel-grip { display: none; }
 .phone-bottom-nav { display: none; }
@@ -380,7 +378,7 @@ select {
 .left-edge { grid-area: leftsplit; }
 .right-edge { grid-area: rightsplit; }
 .bottom-edge { grid-area: bottomresize; }
-.bottom-split-one, .bottom-split-two { align-self: stretch; }
+.bottom-split-one { align-self: stretch; }
 
 /* ── Dock Handle (drag header) ───────────────────────── */
 .dock-handle {
@@ -564,7 +562,7 @@ select {
   gap: 8px;
 }
 
-.list-item small, .transition-box small, .mixer-strip small { color: var(--muted); }
+.list-item small, .transition-box small { color: var(--muted); }
 
 /* ── Source Items ─────────────────────────────────────── */
 .source-item {
@@ -593,17 +591,6 @@ select {
 
 .visibility-btn { padding: 2px 5px !important; font-size: 12px !important; line-height: 1; }
 
-/* ── Source Create Dialog ────────────────────────────── */
-.source-create-dialog {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 8px;
-  margin: 4px;
-  border: 1px solid var(--accent);
-  border-radius: 3px;
-  background: #1e2a38;
-}
 .source-create-row {
   display: flex;
   align-items: center;
@@ -618,6 +605,19 @@ select {
   flex: 1;
   padding: 3px 6px;
   font-size: 12px;
+}
+.source-create-row-inline { align-items: flex-start; }
+.source-field-stack {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+}
+.source-field-stack button { align-self: flex-start; }
+.source-field-hint {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.25;
 }
 .asset-field-wrap {
   display: flex;
@@ -791,8 +791,7 @@ select {
   height: 100%;
   overflow: hidden;
 }
-.audio-device-summary,
-.audio-channel {
+.audio-device-summary {
   border: 1px solid var(--border);
   background: #1b1b1b;
   border-radius: 4px;
@@ -804,10 +803,8 @@ select {
   align-items: center;
   gap: 6px;
 }
-.audio-device-summary strong,
-.audio-channel-head strong { display: block; font-size: 11px; }
-.audio-device-summary small,
-.audio-channel-head small { display: block; color: var(--muted); font-size: 9px; margin-top: 1px; }
+.audio-device-summary strong { display: block; font-size: 11px; }
+.audio-device-summary small { display: block; color: var(--muted); font-size: 9px; margin-top: 1px; }
 .audio-status-pill {
   padding: 3px 7px;
   border: 1px solid #5b4420;
@@ -820,98 +817,6 @@ select {
 .audio-summary-actions { display: flex; align-items: center; gap: 6px; }
 .audio-summary-actions button { padding: 4px 7px; font-size: 10px; }
 .audio-summary-actions button.active { color: #fff; border-color: #4d5f98; background: #2c3555; }
-.audio-channel-list { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 6px; }
-.audio-channel {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  width: 130px;
-  min-height: 0;
-}
-.audio-channel.disabled { opacity: 0.78; }
-.audio-channel.muted .audio-meter-fill { filter: grayscale(1); opacity: 0.45; }
-.audio-channel-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 6px;
-  min-height: 25px;
-}
-.audio-channel-head > span {
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: #242424;
-  color: var(--muted);
-  font-size: 9px;
-}
-.audio-channel.enabled .audio-channel-head > span { color: var(--good); }
-.audio-channel.muted .audio-channel-head > span { color: var(--warn); }
-.audio-channel-actions {
-  display: flex;
-  gap: 3px;
-}
-.audio-channel-actions button {
-  flex: 1;
-  padding: 2px 5px;
-  font-size: 9px;
-  line-height: 1.1;
-}
-.audio-channel-actions button:disabled { opacity: 0.38; cursor: default; }
-.audio-meter-row {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 4px;
-  min-height: 0;
-}
-.audio-meter-row code { color: var(--muted); font-size: 10px; text-align: right; font-variant-numeric: tabular-nums; width: 50px; }
-.audio-meter-column {
-  display: grid;
-  grid-template-columns: 28px 21px;
-  gap: 4px;
-  align-items: stretch;
-}
-.audio-meter-track {
-  position: relative;
-  width: 28px;
-  height: 58px;
-  overflow: hidden;
-  border: 1px solid #111;
-  border-radius: 2px;
-  background:
-    linear-gradient(to top, rgba(31,163,74,0.18) 0 68%, rgba(214,177,61,0.20) 68% 82%, rgba(217,87,63,0.24) 82% 100%),
-    repeating-linear-gradient(to top, transparent 0 23px, rgba(255,255,255,0.08) 23px 24px),
-    #080808;
-}
-.audio-meter-fill {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 0;
-  background: linear-gradient(to top, #1fa34a 0%, #5ec45e 68%, #d6b13d 82%, #d9573f 100%);
-  transition: height 80ms linear;
-}
-.audio-meter-peak {
-  position: absolute;
-  left: 2px;
-  right: 2px;
-  height: 2px;
-  background: #f4f4f4;
-  box-shadow: 0 0 5px rgba(255,255,255,0.55);
-}
-.audio-meter-scale {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  height: 58px;
-  color: #666;
-  font-size: 9px;
-  line-height: 1;
-}
-.audio-volume-control { display: flex; align-items: center; gap: 4px; min-width: 0; color: var(--muted); font-size: 9px; }
-.audio-volume-control input[type="range"] { min-width: 0; flex: 1; height: 13px; padding: 0; }
 .obs-audio-mixer {
   display: flex;
   align-items: stretch;
@@ -1213,13 +1118,6 @@ select {
 .filter-value { color: var(--text); font-variant-numeric: tabular-nums; line-height: 1.25; }
 .properties-empty { margin: auto; }
 
-.filter-panel-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 4px;
-  min-height: 0;
-}
 .settings-dialog.filters-dialog {
   width: min(1040px, calc(100vw - 32px));
   height: min(760px, calc(100vh - 32px));
@@ -1411,13 +1309,6 @@ select {
   padding: 20px;
   text-align: center;
 }
-
-/* Legacy compat for output card settings in dialog */
-.output-card-settings { margin-top: 8px; }
-.output-card-settings .source-create-row { margin: 4px 0; }
-.output-card-settings .source-create-row label { min-width: 70px; font-size: 11px; }
-.output-card-settings .source-create-row input,
-.output-card-settings .source-create-row select { font-size: 11px; padding: 3px 6px; }
 
 /* Settings button in topbar */
 .settings-btn {

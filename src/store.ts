@@ -1,5 +1,5 @@
 import { SbsClientApi, defaultApiHost, defaultApiUrl, defaultInstanceId } from './api'
-import type { AppState, InstanceSummary, PreviewProfile, PubSubEvent, SourceKind } from './types'
+import type { AppState, InstanceSummary, PreviewProfile, PubSubEvent, SourceKind, V4L2Device } from './types'
 
 const listeners = new Set<() => void>()
 const instanceId = defaultInstanceId()
@@ -427,6 +427,10 @@ export async function listSourceKinds() {
 
 export async function describeSourceKind(kind: string) {
   return api.rpc<{ kind: SourceKind }>('source.describeKind', { kind })
+}
+
+export async function discoverV4L2() {
+  return api.rpc<{ devices: V4L2Device[] }>('source.discoverV4L2')
 }
 
 export async function uploadSourceAsset(assetKind: 'image' | 'media' | 'font', filename: string, dataBase64: string) {

@@ -61,6 +61,48 @@ export interface SourceKind {
   fields?: SourceKindField[]
 }
 
+export interface V4L2FrameInterval {
+  type: string
+  numerator?: number
+  denominator?: number
+  fps?: number
+}
+
+export interface V4L2Resolution {
+  type: string
+  width?: number
+  height?: number
+  min_width?: number
+  min_height?: number
+  max_width?: number
+  max_height?: number
+  frame_intervals?: V4L2FrameInterval[]
+}
+
+export interface V4L2Format {
+  fourcc: string
+  description: string
+  media_type: string
+  compressed: boolean
+  zero_copy_expected: boolean
+  software_decode_available: boolean
+  hardware_decode_available: boolean
+  resolutions: V4L2Resolution[]
+}
+
+export interface V4L2Device {
+  id: string
+  display_name: string
+  name: string
+  path: string
+  driver: string
+  bus_info: string
+  streaming: boolean
+  readwrite: boolean
+  type_hints: string[]
+  formats: V4L2Format[]
+}
+
 export interface InstanceSummary {
   instance_id: number
   name: string

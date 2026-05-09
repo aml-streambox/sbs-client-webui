@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import Hls from 'hls.js'
-import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createInstance, createOutput, createScene, createSource, describeSourceKind, disableInstance, enableInstance, getEncoderConfig, getPreviewEncoderConfig, getState, listSourceKinds, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPreviewScene, setSceneItemAudio, startPreviewSession, subscribe, transitionToPreview, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
+import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createInstance, createOutput, createScene, createSource, describeSourceKind, discoverV4L2, disableInstance, enableInstance, getEncoderConfig, getPreviewEncoderConfig, getState, listSourceKinds, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPreviewScene, setSceneItemAudio, startPreviewSession, subscribe, transitionToPreview, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
 
-import type { SourceKind, SourceKindField } from './types'
+import type { SourceKind, SourceKindField, V4L2Device, V4L2Format, V4L2FrameInterval, V4L2Resolution } from './types'
 
 type DockRegion = 'left' | 'right' | 'bottom'
 type DockPanel = 'scenes' | 'sources' | 'controls' | 'mixer' | 'transitions'
@@ -121,6 +121,8 @@ export default function App() {
   const [sourceCreateKind, setSourceCreateKind] = useState('videotestsrc')
   const [sourceCreateName, setSourceCreateName] = useState('')
   const [sourceCreateConfig, setSourceCreateConfig] = useState<Record<string, string>>({})
+  const [v4l2Devices, setV4l2Devices] = useState<V4L2Device[]>([])
+  const [v4l2DiscoveryStatus, setV4l2DiscoveryStatus] = useState('')
   const [assetUploadStatus, setAssetUploadStatus] = useState<Record<string, { state: 'reading' | 'uploading' | 'done' | 'error'; message: string }>>({})
   const [previewController, setPreviewController] = useState<{ stop: () => Promise<void> } | null>(null)
   const [dockLayout, setDockLayout] = useState<DockLayout>(() => loadDockLayout())
@@ -630,6 +632,90 @@ export default function App() {
     return config
   }
 
+  function v4l2DeviceForConfig(config: Record<string, string>, devices = v4l2Devices) {
+    const path = config.device || config.device_path
+    return devices.find((device) => device.path === path) ?? null
+  }
+
+  function v4l2FormatForConfig(config: Record<string, string>, device = v4l2DeviceForConfig(config)) {
+    if (!device) return null
+    const fourcc = config.format || config.fourcc
+    return device.formats.find((format) => format.fourcc === fourcc) ?? device.formats[0] ?? null
+  }
+
+  function v4l2DiscreteResolutions(format: V4L2Format | null) {
+    return (format?.resolutions ?? []).filter((resolution) => resolution.width && resolution.height)
+  }
+
+  function v4l2ResolutionValue(resolution: V4L2Resolution) {
+    return `${resolution.width ?? 0}x${resolution.height ?? 0}`
+  }
+
+  function v4l2IntervalValue(interval: V4L2FrameInterval) {
+    if (interval.numerator && interval.denominator) {
+      return `${interval.denominator}/${interval.numerator}`
+    }
+    return ''
+  }
+
+  function v4l2IntervalLabel(interval: V4L2FrameInterval) {
+    if (interval.fps) {
+      const fps = Math.abs(interval.fps - Math.round(interval.fps)) < 0.01 ? String(Math.round(interval.fps)) : interval.fps.toFixed(2)
+      return `${fps} fps`
+    }
+    if (interval.numerator && interval.denominator) {
+      return `${interval.denominator}/${interval.numerator} fps`
+    }
+    return interval.type
+  }
+
+  function applyV4L2Defaults(config: Record<string, string>, devices = v4l2Devices) {
+    const next = { ...config }
+    const device = v4l2DeviceForConfig(next, devices) ?? devices[0] ?? null
+    if (device) {
+      next.device = device.path
+      next.device_path = device.path
+      next.device_id = device.id
+    } else if (!next.device_path) {
+      next.device_path = next.device || '/dev/video0'
+    }
+
+    const format = v4l2FormatForConfig(next, device)
+    if (format) {
+      next.format = format.fourcc
+      next.fourcc = format.fourcc
+      const resolutions = v4l2DiscreteResolutions(format)
+      const selectedResolution = resolutions.find((resolution) => (
+        String(resolution.width) === next.width && String(resolution.height) === next.height
+      )) ?? resolutions[0]
+      if (selectedResolution?.width && selectedResolution.height) {
+        next.width = String(selectedResolution.width)
+        next.height = String(selectedResolution.height)
+        const intervals = selectedResolution.frame_intervals ?? []
+        const selectedInterval = intervals.find((interval) => v4l2IntervalValue(interval) === next.framerate) ?? intervals[0]
+        const intervalValue = selectedInterval ? v4l2IntervalValue(selectedInterval) : ''
+        if (intervalValue) next.framerate = intervalValue
+      }
+      if (!next.decode_mode) next.decode_mode = 'auto'
+    }
+    return next
+  }
+
+  async function loadV4L2Devices() {
+    try {
+      setV4l2DiscoveryStatus('Detecting V4L2 devices...')
+      const result = await discoverV4L2()
+      const devices = result.devices ?? []
+      setV4l2Devices(devices)
+      setV4l2DiscoveryStatus(devices.length > 0 ? `${devices.length} V4L2 device${devices.length === 1 ? '' : 's'} detected` : 'No V4L2 capture devices detected')
+      return devices
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setV4l2DiscoveryStatus(`V4L2 discovery failed: ${message}`)
+      return []
+    }
+  }
+
   function rememberSourceKind(kind: SourceKind) {
     setSourceKinds((prev) => {
       const next = prev.filter((entry) => entry.id !== kind.id)
@@ -651,9 +737,10 @@ export default function App() {
   async function handleSelectSourceKind(kindId: string) {
     try {
       const kind = await loadSourceKind(kindId)
+      const devices = kind.id === 'v4l2src' ? await loadV4L2Devices() : v4l2Devices
       setSourceCreateKind(kind.id)
       setSourceCreateName((name) => name || `${kind.name} ${sourceEntries.length + 1}`)
-      setSourceCreateConfig(sourceKindDefaults(kind))
+      setSourceCreateConfig(kind.id === 'v4l2src' ? applyV4L2Defaults(sourceKindDefaults(kind), devices) : sourceKindDefaults(kind))
       setAssetUploadStatus({})
       setSourceCreateOpen(false)
       setSourceConfigOpen(true)
@@ -667,7 +754,11 @@ export default function App() {
     if (!name) return
     const kind = sourceKinds.find((k) => k.id === sourceCreateKind)
     const config: Record<string, string> = {}
-    if (kind) {
+    if (kind?.id === 'v4l2src') {
+      for (const [key, val] of Object.entries(sourceCreateConfig)) {
+        if (val !== undefined && val !== '') config[key] = val
+      }
+    } else if (kind) {
       for (const field of kind.fields ?? []) {
         const val = sourceCreateConfig[field.key]
         if (val !== undefined && val !== '') {
@@ -687,10 +778,12 @@ export default function App() {
   async function openSourceEditor(source: any) {
     try {
       const kind = await loadSourceKind(source.type)
+      const devices = kind.id === 'v4l2src' ? await loadV4L2Devices() : v4l2Devices
       setEditingSourceId(source.id)
       setSourceEditName(source.name)
       setSourceEditEnabled(source.enabled !== false)
-      setSourceEditConfig({ ...sourceKindDefaults(kind), ...(source.config ?? {}) })
+      const config = { ...sourceKindDefaults(kind), ...(source.config ?? {}) }
+      setSourceEditConfig(kind.id === 'v4l2src' ? applyV4L2Defaults(config, devices) : config)
       setAssetUploadStatus({})
     } catch (error) {
       setStatus(String(error))
@@ -948,6 +1041,10 @@ export default function App() {
     if (type === 'grayscale') return 'Grayscale'
     if (type === 'brightness') return 'Brightness'
     if (type === 'contrast') return 'Contrast'
+    if (type === 'crop') return 'Crop'
+    if (type === 'mirror') return 'Mirror'
+    if (type === 'flip') return 'Flip'
+    if (type === 'rotation') return 'Rotation'
     return type
   }
 
@@ -962,8 +1059,12 @@ export default function App() {
     if (key === 'contrast') return { min: 0, max: 4, step: 0.05, scale: 100 }
     if (key === 'gamma') return { min: 0.1, max: 4, step: 0.05, scale: 100 }
     if (key === 'hue') return { min: -180, max: 180, step: 1, scale: 1 }
+    if (key === 'degrees') return { min: -180, max: 180, step: 1, scale: 1 }
     if (key === 'min' || key === 'max' || key === 'similarity' || key === 'smoothness' || key === 'spill') {
       return { min: 0, max: 1, step: 0.01, scale: 100 }
+    }
+    if (key === 'top' || key === 'right' || key === 'bottom' || key === 'left') {
+      return { min: 0, max: 0.95, step: 0.01, scale: 100 }
     }
     return { min: 0, max: 1, step: 0.01, scale: 100 }
   }
@@ -974,6 +1075,8 @@ export default function App() {
     if (key === 'contrast') return 'Contrast multiplier; 1.00x is unchanged.'
     if (key === 'gamma') return 'Midtone curve; 1.00x is unchanged.'
     if (key === 'hue') return 'Hue rotation; 0 deg is unchanged.'
+    if (key === 'degrees') return 'Rotates the source around its center.'
+    if (key === 'top' || key === 'right' || key === 'bottom' || key === 'left') return 'Crops this edge before scaling the source.'
     if (filter.type === 'luma_key' && key === 'min') return 'Pixels darker than this become transparent.'
     if (filter.type === 'luma_key' && key === 'max') return 'Pixels brighter than this remain opaque.'
     if (key === 'similarity') return 'How close a color must be to the key color.'
@@ -983,7 +1086,7 @@ export default function App() {
   }
 
   function formatFilterParamValue(key: string, value: number) {
-    if (key === 'hue') return `${Math.round(value)} deg`
+    if (key === 'hue' || key === 'degrees') return `${Math.round(value)} deg`
     if (key === 'brightness') return `${value >= 0 ? '+' : ''}${Math.round(value * 100)}%`
     if (key === 'contrast' || key === 'gamma') return `${value.toFixed(2)}x`
     return `${Math.round(value * 100)}%`
@@ -1008,6 +1111,9 @@ export default function App() {
       if (key === 'similarity') return 0.25
       if (key === 'smoothness') return 0.08
       return 0
+    }
+    if (filter.type === 'rotation') {
+      return key === 'degrees' ? 90 : 0
     }
     return 0
   }
@@ -1209,6 +1315,133 @@ export default function App() {
       setAssetUploadStatus((prev) => ({ ...prev, [statusKey]: { state: 'error', message: `Upload failed: ${message}` } }))
       setStatus(`Upload failed: ${message}`)
     }
+  }
+
+  function renderV4L2ConfigControls(
+    config: Record<string, string>,
+    setConfig: Dispatch<SetStateAction<Record<string, string>>>,
+  ) {
+    const device = v4l2DeviceForConfig(config)
+    const format = v4l2FormatForConfig(config, device)
+    const resolutions = v4l2DiscreteResolutions(format)
+    const selectedResolution = resolutions.find((resolution) => (
+      String(resolution.width) === config.width && String(resolution.height) === config.height
+    )) ?? resolutions[0]
+    const intervals = selectedResolution?.frame_intervals ?? []
+    const compressed = Boolean(format?.compressed)
+
+    return (
+      <>
+        <div className="source-create-row">
+          <label>Detected Device</label>
+          <select
+            value={device?.path ?? ''}
+            onChange={(event) => {
+              const selected = v4l2Devices.find((entry) => entry.path === event.target.value)
+              setConfig((prev) => applyV4L2Defaults({
+                ...prev,
+                device: selected?.path ?? '',
+                device_path: selected?.path ?? prev.device_path ?? '/dev/video0',
+                device_id: selected?.id ?? '',
+                format: '',
+                fourcc: '',
+                width: '',
+                height: '',
+                framerate: '',
+              }, selected ? [selected] : v4l2Devices))
+            }}
+          >
+            <option value="">Manual path</option>
+            {v4l2Devices.map((entry) => (
+              <option key={entry.id} value={entry.path}>{entry.display_name || entry.path} ({entry.path})</option>
+            ))}
+          </select>
+        </div>
+        <div className="source-create-row">
+          <label>Manual Path</label>
+          <input
+            value={config.device_path ?? config.device ?? '/dev/video0'}
+            onChange={(event) => setConfig((prev) => ({
+              ...prev,
+              device: event.target.value,
+              device_path: event.target.value,
+              device_id: '',
+            }))}
+            placeholder="/dev/video0"
+          />
+        </div>
+        <div className="source-create-row source-create-row-inline">
+          <label>Discovery</label>
+          <div className="source-field-stack">
+            <button type="button" onClick={() => loadV4L2Devices().then((devices) => setConfig((prev) => applyV4L2Defaults(prev, devices)))}>Refresh Devices</button>
+            <small className="source-field-hint">{v4l2DiscoveryStatus || 'Use refresh to query target V4L2 devices.'}</small>
+          </div>
+        </div>
+        <div className="source-create-row">
+          <label>Format</label>
+          <select
+            value={format?.fourcc ?? ''}
+            disabled={!device || (device.formats ?? []).length === 0}
+            onChange={(event) => setConfig((prev) => applyV4L2Defaults({
+              ...prev,
+              format: event.target.value,
+              fourcc: event.target.value,
+              width: '',
+              height: '',
+              framerate: '',
+            }))}
+          >
+            {!device && <option value="">Select a detected device</option>}
+            {device && (device.formats ?? []).length === 0 && <option value="">No formats reported</option>}
+            {(device?.formats ?? []).map((entry) => (
+              <option key={entry.fourcc} value={entry.fourcc}>{entry.fourcc} · {entry.description || entry.media_type}</option>
+            ))}
+          </select>
+        </div>
+        <div className="source-create-row">
+          <label>Resolution</label>
+          <select
+            value={selectedResolution ? v4l2ResolutionValue(selectedResolution) : ''}
+            disabled={resolutions.length === 0}
+            onChange={(event) => {
+              const [width, height] = event.target.value.split('x')
+              setConfig((prev) => applyV4L2Defaults({ ...prev, width, height, framerate: '' }))
+            }}
+          >
+            {resolutions.length === 0 && <option value="">No discrete resolutions</option>}
+            {resolutions.map((entry) => (
+              <option key={v4l2ResolutionValue(entry)} value={v4l2ResolutionValue(entry)}>{entry.width} x {entry.height}</option>
+            ))}
+          </select>
+        </div>
+        <div className="source-create-row">
+          <label>Frame Rate</label>
+          <select
+            value={config.framerate ?? (intervals[0] ? v4l2IntervalValue(intervals[0]) : '')}
+            disabled={intervals.length === 0}
+            onChange={(event) => setConfig((prev) => ({ ...prev, framerate: event.target.value }))}
+          >
+            {intervals.length === 0 && <option value="">No frame rates reported</option>}
+            {intervals.map((entry, index) => {
+              const value = v4l2IntervalValue(entry)
+              return <option key={`${value}-${index}`} value={value}>{v4l2IntervalLabel(entry)}</option>
+            })}
+          </select>
+        </div>
+        <div className="source-create-row">
+          <label>Decode Mode</label>
+          <select
+            value={config.decode_mode ?? 'auto'}
+            disabled={!compressed}
+            onChange={(event) => setConfig((prev) => ({ ...prev, decode_mode: event.target.value }))}
+          >
+            <option value="auto">Auto{compressed ? ' (prefer hardware)' : ' (raw mode)'}</option>
+            <option value="hardware" disabled={!format?.hardware_decode_available}>Hardware{format?.hardware_decode_available ? '' : ' unavailable'}</option>
+            <option value="software" disabled={compressed && !format?.software_decode_available}>Software{compressed && !format?.software_decode_available ? ' unavailable' : ''}</option>
+          </select>
+        </div>
+      </>
+    )
   }
 
   function renderSourceFieldInput(
@@ -1724,7 +1957,7 @@ export default function App() {
               <label>Name</label>
               <input value={sourceCreateName} onChange={(event) => setSourceCreateName(event.target.value)} />
             </div>
-            {(kind.fields ?? []).map((field) => (
+            {kind.id === 'v4l2src' ? renderV4L2ConfigControls(sourceCreateConfig, setSourceCreateConfig) : (kind.fields ?? []).map((field) => (
               <div key={field.key} className="source-create-row">
                 <label>{field.label}</label>
                 {renderSourceFieldInput(field, sourceCreateConfig, setSourceCreateConfig)}
@@ -1795,6 +2028,10 @@ export default function App() {
                 <option value="color_correction">Color Correction</option>
                 <option value="luma_key">Luma Key</option>
                 <option value="chroma_key">Chroma Key</option>
+                <option value="crop">Crop</option>
+                <option value="mirror">Mirror</option>
+                <option value="flip">Flip</option>
+                <option value="rotation">Rotation</option>
                 <option value="lut">Apply LUT</option>
                 <option value="hdr_to_sdr_lut">HDR→SDR LUT</option>
               </select>
@@ -1850,6 +2087,21 @@ export default function App() {
                     {renderFilterParamSlider(selectedFilter, 'smoothness', 'Smoothness')}
                     {renderFilterParamSlider(selectedFilter, 'spill', 'Spill Reduction')}
                   </>
+                ) : selectedFilter.type === 'crop' ? (
+                  <>
+                    {renderFilterParamSlider(selectedFilter, 'top', 'Top')}
+                    {renderFilterParamSlider(selectedFilter, 'right', 'Right')}
+                    {renderFilterParamSlider(selectedFilter, 'bottom', 'Bottom')}
+                    {renderFilterParamSlider(selectedFilter, 'left', 'Left')}
+                  </>
+                ) : selectedFilter.type === 'rotation' ? (
+                  <>
+                    {renderFilterParamSlider(selectedFilter, 'degrees', 'Degrees')}
+                  </>
+                ) : selectedFilter.type === 'mirror' || selectedFilter.type === 'flip' ? (
+                  <div className="filter-empty properties-empty">
+                    {selectedFilter.type === 'mirror' ? 'Mirrors the source horizontally while enabled.' : 'Flips the source vertically while enabled.'}
+                  </div>
                 ) : (
                   <label className="filter-property-row">
                     <div className="filter-label-block">
@@ -2057,7 +2309,9 @@ export default function App() {
                       const src = source as any
                       const kindId = src.type
                       const kind = sourceKinds.find((k) => k.id === kindId)
-                      if (!kind || (kind.fields ?? []).length === 0) return null
+                      if (!kind) return null
+                      if (kind.id === 'v4l2src') return renderV4L2ConfigControls(sourceEditConfig, setSourceEditConfig)
+                      if ((kind.fields ?? []).length === 0) return null
                       return (kind.fields ?? []).map((field) => (
                         <div key={field.key} className="source-create-row">
                           <label>{field.label}</label>
