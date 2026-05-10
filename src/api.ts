@@ -4,6 +4,8 @@ type EventHandler = (event: PubSubEvent) => void
 type ConnectionState = 'connecting' | 'connected' | 'reconnecting' | 'error'
 type ConnectionHandler = (state: ConnectionState, detail: string) => void
 
+const PUBLIC_AUTH_METHODS = new Set(['auth.status', 'auth.setup', 'auth.login', 'auth.loginApiKey'])
+
 export class SbsClientApi {
   private socket: WebSocket | null = null
   private nextId = 1
@@ -15,6 +17,7 @@ export class SbsClientApi {
   private reconnectAttempt = 0
   private hasConnected = false
   private shouldReconnect = true
+  private authToken: string | null = typeof window === 'undefined' ? null : window.localStorage.getItem('sbs-auth-token')
 
   constructor(private readonly url: string, private readonly instanceId: number) {}
 
@@ -68,8 +71,12 @@ export class SbsClientApi {
      * the server is an instance API and doesn't support instance.call routing. */
     const isDirectInstance = !this.url.includes('/api/v1/ws')
 
-    const request: RpcRequest = method.startsWith('instance.') || isDirectInstance
-      ? { jsonrpc: '2.0', id, method, params }
+    const authParams = this.authToken && !PUBLIC_AUTH_METHODS.has(method)
+      ? { ...(params ?? {}), auth_token: this.authToken }
+      : params
+
+    const request: RpcRequest = method.startsWith('instance.') || method.startsWith('auth.') || isDirectInstance
+      ? { jsonrpc: '2.0', id, method, params: authParams }
       : {
           jsonrpc: '2.0',
           id,
@@ -77,7 +84,8 @@ export class SbsClientApi {
           params: {
             instance_id: this.instanceId,
             method,
-            params,
+            params: authParams,
+            auth_token: this.authToken ?? undefined,
           },
         }
 
@@ -88,6 +96,19 @@ export class SbsClientApi {
       })
       this.socket!.send(JSON.stringify(request))
     })
+  }
+
+  setAuthToken(token: string | null): void {
+    this.authToken = token
+    if (token) {
+      window.localStorage.setItem('sbs-auth-token', token)
+    } else {
+      window.localStorage.removeItem('sbs-auth-token')
+    }
+  }
+
+  hasAuthToken(): boolean {
+    return Boolean(this.authToken)
   }
 
   private handleMessage(raw: string): void {
@@ -190,6 +211,10 @@ export function defaultApiUrl(): string {
     return configured
   }
   const host = window.location.hostname || '127.0.0.1'
+  const port = Number(window.location.port)
+  if (Number.isFinite(port) && port > 0 && port !== 10086) {
+    return `ws://${host}:${Math.max(1, port - 1)}/api`
+  }
   return `ws://${host}:10086/api/v1/ws`
 }
 

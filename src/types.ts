@@ -126,6 +126,16 @@ export interface AppState {
   connected: boolean
   connectionState: 'connecting' | 'connected' | 'reconnecting' | 'error'
   connectionMessage: string
+  auth: {
+    checked: boolean
+    authenticated: boolean
+    auth_required: boolean
+    passwordless: boolean
+    setup_required: boolean
+    username?: string
+    message?: string
+    api_keys?: Array<{ id: string; name: string; created_at?: string }>
+  }
   previewStatus: 'idle' | 'connecting' | 'active' | 'error'
   previewMessage: string
   previewUrl: string | null

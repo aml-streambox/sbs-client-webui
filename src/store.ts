@@ -10,6 +10,13 @@ const state: AppState = {
   connected: false,
   connectionState: 'connecting',
   connectionMessage: 'Connecting to SBS...',
+  auth: {
+    checked: false,
+    authenticated: false,
+    auth_required: true,
+    passwordless: false,
+    setup_required: false,
+  },
   previewStatus: 'idle',
   previewMessage: 'Disconnected',
   previewUrl: null,
@@ -289,6 +296,30 @@ async function syncAfterConnect() {
   }
 }
 
+type AuthStatus = AppState['auth'] & { token?: string }
+
+function applyAuthStatus(payload: AuthStatus, authenticated?: boolean) {
+  if (payload.token) {
+    api.setAuthToken(payload.token)
+  }
+  state.auth = {
+    checked: true,
+    authenticated: authenticated ?? Boolean(payload.passwordless || payload.token || !payload.auth_required),
+    auth_required: Boolean(payload.auth_required),
+    passwordless: Boolean(payload.passwordless),
+    setup_required: Boolean(payload.setup_required),
+    username: payload.username,
+    message: payload.message,
+    api_keys: payload.api_keys ?? state.auth.api_keys ?? [],
+  }
+}
+
+async function refreshAuthStatus() {
+  const status = await api.rpc<AuthStatus>('auth.status')
+  applyAuthStatus(status, !status.auth_required || status.passwordless || api.hasAuthToken())
+  return status
+}
+
 export async function connectStore() {
   if (initialized) {
     return
@@ -301,12 +332,20 @@ export async function connectStore() {
     state.connected = connectionState === 'connected'
     if (connectionState === 'connected') {
       state.previewMessage = state.previewStatus === 'active' ? state.previewMessage : 'Connected'
-      if (pollTimer === null) {
-        pollTimer = window.setInterval(() => {
-          refreshState().catch(() => undefined)
-        }, 1000)
-      }
-      void syncAfterConnect()
+      void refreshAuthStatus().then((auth) => {
+        if (!auth.auth_required || auth.passwordless || state.auth.authenticated) {
+          if (pollTimer === null) {
+            pollTimer = window.setInterval(() => {
+              refreshState().catch(() => undefined)
+            }, 1000)
+          }
+          listApiKeys().catch(() => undefined)
+          void syncAfterConnect()
+        }
+      }).catch((error) => {
+        state.auth = { ...state.auth, checked: true, message: error instanceof Error ? error.message : String(error) }
+        emit()
+      })
     } else if (connectionState === 'reconnecting') {
       state.previewMessage = 'Control connection lost; reconnecting'
     } else if (connectionState === 'error') {
@@ -320,6 +359,63 @@ export async function connectStore() {
   })
 
   await api.connect()
+}
+
+export async function setupAuth(username: string, password: string) {
+  const result = await api.rpc<AuthStatus>('auth.setup', { username, password })
+  applyAuthStatus(result, true)
+  await syncAfterConnect()
+  await listApiKeys()
+}
+
+export async function loginAuth(username: string, password: string) {
+  const result = await api.rpc<AuthStatus>('auth.login', { username, password })
+  applyAuthStatus(result, true)
+  await syncAfterConnect()
+  await listApiKeys()
+}
+
+export async function loginApiKey(apiKey: string) {
+  const result = await api.rpc<AuthStatus>('auth.loginApiKey', { api_key: apiKey })
+  applyAuthStatus(result, true)
+  await syncAfterConnect()
+  await listApiKeys()
+}
+
+export async function createApiKey(name: string) {
+  const key = await api.rpc<{ id: string; name: string; created_at: string; api_key: string }>('auth.createApiKey', { name })
+  await listApiKeys()
+  return key
+}
+
+export async function listApiKeys() {
+  const result = await api.rpc<{ api_keys: Array<{ id: string; name: string; created_at?: string }> }>('auth.listApiKeys')
+  state.auth = { ...state.auth, api_keys: result.api_keys ?? [] }
+  emit()
+  return state.auth.api_keys
+}
+
+export async function deleteApiKey(id: string) {
+  await api.rpc('auth.deleteApiKey', { id })
+  await listApiKeys()
+}
+
+export async function updateAuthCredentials(username: string, password: string) {
+  const result = await api.rpc<AuthStatus>('auth.updateCredentials', { username, password })
+  applyAuthStatus(result, true)
+  return result
+}
+
+export async function setPasswordlessAuth(enabled: boolean) {
+  const result = await api.rpc<AuthStatus>('auth.setPasswordless', { enabled })
+  applyAuthStatus(result, !result.auth_required || result.passwordless || api.hasAuthToken())
+  return result
+}
+
+export function logoutAuth() {
+  api.setAuthToken(null)
+  state.auth = { ...state.auth, authenticated: false }
+  emit()
 }
 
 export async function refreshState() {

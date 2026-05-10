@@ -119,6 +119,91 @@ select {
 }
 .obs-stat.warn { color: var(--warn); border-color: #6d4d1b; }
 
+.auth-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(circle at top, #23384d 0, #191919 45%, #111 100%);
+}
+.auth-card {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: rgba(30, 30, 30, 0.96);
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+.auth-brand { display: grid; gap: 4px; margin-bottom: 4px; }
+.auth-brand strong { font-size: 22px; }
+.auth-brand span, .auth-hint { color: var(--muted); }
+.auth-card label { display: grid; gap: 6px; color: #cfcfcf; }
+.auth-card .primary { padding: 9px 12px; background: var(--accent); border-color: var(--accent-light); }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.auth-tabs button.active { background: var(--accent); border-color: var(--accent-light); }
+.auth-hint { font-size: 12px; line-height: 1.4; }
+.auth-hint.subtle { color: #777; }
+.api-key-tools { display: flex; gap: 4px; align-items: center; }
+.api-key-tools input { width: 120px; }
+.api-key-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #51400f;
+  background: #2b250f;
+  color: #f0d98a;
+}
+.api-key-banner code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff2b0;
+}
+.settings-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+.settings-check input { width: auto; }
+.auth-api-create { width: 100%; }
+.auth-api-create input { flex: 1; min-width: 0; }
+.settings-api-key-created {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #6d4d1b;
+  border-radius: 4px;
+  background: #2b250f;
+  color: #f0d98a;
+}
+.settings-api-key-created code {
+  padding: 6px;
+  border-radius: 3px;
+  background: #171308;
+  color: #fff2b0;
+  overflow-wrap: anywhere;
+}
+.auth-key-list { display: grid; gap: 8px; }
+.auth-key-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-panel);
+}
+.auth-key-row div { display: grid; gap: 2px; min-width: 0; }
+.auth-key-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-key-row span { color: var(--muted); font-size: 11px; }
+
 /* ── Instance Dropdown ───────────────────────────────── */
 .instance-dropdown { position: relative; }
 .instance-trigger {

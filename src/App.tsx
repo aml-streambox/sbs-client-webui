@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import Hls from 'hls.js'
-import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createInstance, createOutput, createScene, createSource, describeSourceKind, discoverV4L2, disableInstance, enableInstance, getEncoderConfig, getPreviewEncoderConfig, getState, listSourceKinds, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPreviewScene, setSceneItemAudio, startPreviewSession, subscribe, transitionToPreview, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
+import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createApiKey, createInstance, createOutput, createScene, createSource, deleteApiKey, describeSourceKind, discoverV4L2, disableInstance, enableInstance, getEncoderConfig, getPreviewEncoderConfig, getState, listApiKeys, listSourceKinds, loginApiKey, loginAuth, logoutAuth, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPasswordlessAuth, setPreviewScene, setSceneItemAudio, setupAuth, startPreviewSession, subscribe, transitionToPreview, updateAuthCredentials, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
 
 import type { SourceKind, SourceKindField, V4L2Device, V4L2Format, V4L2FrameInterval, V4L2Resolution } from './types'
 
@@ -114,6 +114,13 @@ export default function App() {
   const state = useAppState()
   const [command, setCommand] = useState('scene set-active scene-main')
   const [status, setStatus] = useState('Ready')
+  const [authUsername, setAuthUsername] = useState('admin')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authApiKey, setAuthApiKey] = useState('')
+  const [authMode, setAuthMode] = useState<'password' | 'api_key'>('password')
+  const [authBusy, setAuthBusy] = useState(false)
+  const [newApiKeyName, setNewApiKeyName] = useState('')
+  const [newApiKey, setNewApiKey] = useState('')
   const [instancePanelOpen, setInstancePanelOpen] = useState(false)
   const [sourceKinds, setSourceKinds] = useState<SourceKind[]>([])
   const [sourceCreateOpen, setSourceCreateOpen] = useState(false)
@@ -140,12 +147,13 @@ export default function App() {
   const [filterAmountDrafts, setFilterAmountDrafts] = useState<Record<string, string>>({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<'canvas' | 'encoder' | 'preview' | 'output'>('canvas')
+  const [settingsTab, setSettingsTab] = useState<'canvas' | 'encoder' | 'preview' | 'output' | 'auth'>('canvas')
   const [settingsCanvas, setSettingsCanvas] = useState({ width: 1920, height: 1080, fps_num: 60, fps_den: 1, color_mode: 'sdr', background_color: '#000000' })
   const [editingOutputId, setEditingOutputId] = useState<string | null>(null)
   const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: '20000', keyframe_interval: '60', gop_preset: 'low_delay', enable_b_frames: false, rc_mode: '0' })
   const [editOutputTransport, setEditOutputTransport] = useState<Record<string, string>>({})
   const [previewEncoder, setPreviewEncoder] = useState({ width: '1280', height: '720', framerate: '30', bitrate_kbps: '2500' })
+  const [authSettings, setAuthSettings] = useState({ passwordless: false, username: 'admin', password: '' })
   const [fadeDurationMs, setFadeDurationMs] = useState('2000')
   const [previewZoom, setPreviewZoom] = useState(1)
   const [previewViewport, setPreviewViewport] = useState({ width: 0, height: 0 })
@@ -285,6 +293,50 @@ export default function App() {
       .then(() => setStatus('Connected to SBS'))
       .catch((error) => setStatus(`Connection failed: ${String(error)}`))
   }, [])
+
+  async function submitAuth(event: FormEvent) {
+    event.preventDefault()
+    setAuthBusy(true)
+    setStatus('Authenticating...')
+    try {
+      if (state.auth.setup_required) {
+        await setupAuth(authUsername.trim(), authPassword)
+      } else if (authMode === 'api_key') {
+        await loginApiKey(authApiKey.trim())
+      } else {
+        await loginAuth(authUsername.trim(), authPassword)
+      }
+      setAuthPassword('')
+      setAuthApiKey('')
+      setStatus('Authenticated')
+    } catch (error) {
+      setStatus(`Authentication failed: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  async function handleCreateApiKey() {
+    setStatus('Creating API key...')
+    try {
+      const key = await createApiKey(newApiKeyName.trim() || 'WebUI API Key')
+      setNewApiKey(key.api_key)
+      setNewApiKeyName('')
+      setStatus('API key created')
+    } catch (error) {
+      setStatus(`API key creation failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  async function handleDeleteApiKey(id: string) {
+    setStatus('Deleting API key...')
+    try {
+      await deleteApiKey(id)
+      setStatus('API key deleted')
+    } catch (error) {
+      setStatus(`API key deletion failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
 
   useEffect(() => {
     if (!contextMenu) return
@@ -1656,6 +1708,24 @@ export default function App() {
         patch.file_path = editOutputTransport.file_path
       }
       await updateOutput(editingOutputId, { encoder: patch }).then(() => setStatus('Output transport updated')).catch((e) => setStatus(String(e)))
+    } else if (settingsTab === 'auth') {
+      try {
+        if (authSettings.passwordless) {
+          await setPasswordlessAuth(true)
+          setStatus('Password authentication disabled')
+        } else {
+          if (!authSettings.username.trim() || !authSettings.password) {
+            setStatus('Username and new password are required')
+            return
+          }
+          await updateAuthCredentials(authSettings.username.trim(), authSettings.password)
+          setAuthSettings((current) => ({ ...current, password: '' }))
+          setStatus('Authentication credentials updated')
+        }
+      } catch (e) {
+        setStatus(String(e))
+        return
+      }
     }
     setSettingsOpen(false)
   }
@@ -1778,6 +1848,71 @@ export default function App() {
         </>
       )
     }
+    if (settingsTab === 'auth') {
+      return (
+        <>
+          <div className="settings-warning">Passwordless mode disables WebUI/API login checks. Use it only on trusted local networks.</div>
+          <div className="settings-section-title">Authentication</div>
+          <div className="settings-row">
+            <label>Passwordless Mode</label>
+            <label className="settings-check">
+              <input
+                type="checkbox"
+                checked={authSettings.passwordless}
+                onChange={(e) => setAuthSettings((s) => ({ ...s, passwordless: e.target.checked }))}
+              />
+              Disable username/password login
+            </label>
+          </div>
+          {!authSettings.passwordless && (
+            <>
+              <div className="settings-row">
+                <label>Username</label>
+                <input value={authSettings.username} onChange={(e) => setAuthSettings((s) => ({ ...s, username: e.target.value }))} />
+              </div>
+              <div className="settings-row">
+                <label>New Password</label>
+                <input type="password" value={authSettings.password} onChange={(e) => setAuthSettings((s) => ({ ...s, password: e.target.value }))} />
+              </div>
+              <div className="settings-empty">Applying replaces the current username/password and signs this browser in with the new credentials.</div>
+            </>
+          )}
+          <div className="settings-section-title">API Keys</div>
+          <div className="settings-row">
+            <label>Create Key</label>
+            <div className="settings-inline auth-api-create">
+              <input
+                value={newApiKeyName}
+                onChange={(e) => setNewApiKeyName(e.target.value)}
+                placeholder="Key name"
+              />
+              <button type="button" onClick={() => handleCreateApiKey()}>Create</button>
+              <button type="button" onClick={() => listApiKeys().catch((e) => setStatus(String(e)))}>Refresh</button>
+            </div>
+          </div>
+          {newApiKey && (
+            <div className="settings-api-key-created">
+              <span>Copy this key now. It will not be shown again.</span>
+              <code>{newApiKey}</code>
+              <button type="button" onClick={() => setNewApiKey('')}>Dismiss</button>
+            </div>
+          )}
+          <div className="auth-key-list">
+            {(state.auth.api_keys ?? []).length === 0 ? (
+              <div className="settings-empty">No API keys have been created.</div>
+            ) : (state.auth.api_keys ?? []).map((key) => (
+              <div className="auth-key-row" key={key.id}>
+                <div>
+                  <strong>{key.name}</strong>
+                  <span>{key.created_at || key.id}</span>
+                </div>
+                <button type="button" onClick={() => handleDeleteApiKey(key.id)}>Delete</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )
+    }
     // output tab
     return (
       <>
@@ -1886,6 +2021,14 @@ export default function App() {
                 setSettingsTab('preview')
               }}>Preview</button>
               <button className={settingsTab === 'output' ? 'active' : ''} onClick={() => setSettingsTab('output')}>Output</button>
+              <button className={settingsTab === 'auth' ? 'active' : ''} onClick={() => {
+                setAuthSettings({
+                  passwordless: state.auth.passwordless,
+                  username: state.auth.username || authUsername || 'admin',
+                  password: '',
+                })
+                setSettingsTab('auth')
+              }}>Auth</button>
             </nav>
             <div className="settings-body">
               {renderSettingsBody()}
@@ -2844,6 +2987,47 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [previewController, sceneEntries])
 
+  if (state.connected && state.auth.checked && state.auth.auth_required && !state.auth.authenticated) {
+    return (
+      <div className="auth-shell">
+        <form className="auth-card" onSubmit={submitAuth}>
+          <div className="auth-brand">
+            <strong>SBS Studio</strong>
+            <span>{state.auth.setup_required ? 'Create the first administrator account' : 'Sign in to continue'}</span>
+          </div>
+          {!state.auth.setup_required && (
+            <div className="auth-tabs">
+              <button type="button" className={authMode === 'password' ? 'active' : ''} onClick={() => setAuthMode('password')}>Password</button>
+              <button type="button" className={authMode === 'api_key' ? 'active' : ''} onClick={() => setAuthMode('api_key')}>API Key</button>
+            </div>
+          )}
+          {(state.auth.setup_required || authMode === 'password') ? (
+            <>
+              <label>
+                Username
+                <input value={authUsername} onChange={(event) => setAuthUsername(event.target.value)} autoComplete="username" required />
+              </label>
+              <label>
+                Password
+                <input value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} type="password" autoComplete={state.auth.setup_required ? 'new-password' : 'current-password'} required />
+              </label>
+            </>
+          ) : (
+            <label>
+              API Key
+              <input value={authApiKey} onChange={(event) => setAuthApiKey(event.target.value)} type="password" autoComplete="off" required />
+            </label>
+          )}
+          <button className="primary" disabled={authBusy} type="submit">
+            {authBusy ? 'Working...' : state.auth.setup_required ? 'Create Account' : 'Sign In'}
+          </button>
+          <p className="auth-hint">{status}</p>
+          <p className="auth-hint subtle">Delete the server auth config file to reset credentials, or set it to passwordless mode for trusted local deployments.</p>
+        </form>
+      </div>
+    )
+  }
+
   return (
     <div className="app-shell" data-workspace-mode={workspaceMode}>
       <header className="obs-topbar">
@@ -2905,10 +3089,14 @@ export default function App() {
           <span className={`obs-stat ${fpsWarn ? 'warn' : ''}`} title={fpsTitle}>FPS {displayFps}/{targetFps}</span>
           <span className="obs-stat">Bitrate {Math.round(state.telemetry.bitrateKbps)} kbps</span>
           <span className="obs-stat">Latency {Math.round(state.telemetry.latencyMs)} ms</span>
+          {state.auth.auth_required && state.auth.authenticated && (
+            <div className="api-key-tools">
+              <button onClick={() => { logoutAuth(); setStatus('Signed out') }}>Sign Out</button>
+            </div>
+          )}
           <button className="settings-btn" onClick={() => openSettings()}>Settings</button>
         </div>
       </header>
-
       <main
         className="obs-layout"
         style={{
