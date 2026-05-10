@@ -184,6 +184,14 @@ export default function App() {
     if (typeof window === 'undefined') return true
     return window.localStorage.getItem('sbs-preview-audio-playback') !== 'off'
   })
+  const [sourceBoxesVisible, setSourceBoxesVisible] = useState(() => {
+    if (typeof window === 'undefined') return true
+    return window.localStorage.getItem('sbs-source-boxes-visible') !== 'off'
+  })
+  const [previewStatusOverlayVisible, setPreviewStatusOverlayVisible] = useState(() => {
+    if (typeof window === 'undefined') return true
+    return window.localStorage.getItem('sbs-preview-status-overlay-visible') !== 'off'
+  })
 
   const DEFAULT_CANVAS_W = 1920
   const DEFAULT_CANVAS_H = 1080
@@ -293,6 +301,90 @@ export default function App() {
     if (Math.abs(px + w / 2 - canvasW / 2) < SNAP_THRESHOLD) snappedPx = canvasW / 2 - w / 2
     if (Math.abs(py + h / 2 - canvasH / 2) < SNAP_THRESHOLD) snappedPy = canvasH / 2 - h / 2
     return { px: snappedPx, py: snappedPy, w: snappedW, h: snappedH }
+  }
+
+  function updatePreviewDrag(clientX: number, clientY: number) {
+    const drag = dragRef.current
+    if (!drag) return
+    const pr = getPreviewRect()
+    if (!pr) return
+    const dx = clientX - drag.startMouseX
+    const dy = clientY - drag.startMouseY
+    const sx = canvasW / pr.width
+    const sy = canvasH / pr.height
+    const bbox = document.querySelector(`.source-bbox[data-item-id="${drag.itemId}"]`) as HTMLElement | null
+    if (drag.type === 'move') {
+      let newPx = drag.startPositonX + dx * sx
+      let newPy = drag.startPositonY + dy * sy
+      const newW = drag.startWidth
+      const newH = drag.startHeight
+      const snapped = snapToCanvas(newPx, newPy, newW, newH)
+      if (bbox) {
+        const mapped = canvasToPreview(snapped.px, snapped.py, newW, newH)
+        bbox.style.left = mapped.x + 'px'
+        bbox.style.top = mapped.y + 'px'
+      }
+      dragRef.current = { ...drag, _newPx: snapped.px, _newPy: snapped.py } as any
+      return
+    }
+
+    if (drag.type === 'resize' && drag.handle) {
+      const h = drag.handle
+      let newPx = drag.startPositonX
+      let newPy = drag.startPositonY
+      let newW = drag.startWidth
+      let newH = drag.startHeight
+      const dxC = dx * sx
+      const dyC = dy * sy
+
+      if (h.includes('e')) newW = Math.max(MIN_SIZE, drag.startWidth + dxC)
+      if (h.includes('w')) { newW = Math.max(MIN_SIZE, drag.startWidth - dxC); newPx = drag.startPositonX + drag.startWidth - newW }
+      if (h.includes('n')) { newH = Math.max(MIN_SIZE, drag.startHeight - dyC); newPy = drag.startPositonY + drag.startHeight - newH }
+      if (h.includes('s')) newH = Math.max(MIN_SIZE, drag.startHeight + dyC)
+
+      const snapped = snapToCanvas(newPx, newPy, newW, newH)
+      if (bbox) {
+        const mapped = canvasToPreview(snapped.px, snapped.py, snapped.w, snapped.h)
+        bbox.style.left = mapped.x + 'px'
+        bbox.style.top = mapped.y + 'px'
+        bbox.style.width = mapped.w + 'px'
+        bbox.style.height = mapped.h + 'px'
+      }
+      dragRef.current = { ...drag, _newPx: snapped.px, _newPy: snapped.py, _newW: snapped.w, _newH: snapped.h } as any
+    }
+  }
+
+  async function finishPreviewDrag() {
+    const drag = dragRef.current
+    if (!drag) return
+    dragRef.current = null
+    const scene = (state.scenes as Record<string, any>)[state.activeSceneId!]
+    if (!scene) return
+    const item = (scene.items as any[])?.find((it: any) => it.id === drag.itemId)
+    if (!item) return
+    if (drag.type === 'move') {
+      const d = drag as any
+      const newPx = d._newPx ?? drag.startPositonX
+      const newPy = d._newPy ?? drag.startPositonY
+      await updateSceneItemTransform(state.activeSceneId!, drag.itemId, {
+        ...item.transform,
+        position_x: Math.round(newPx),
+        position_y: Math.round(newPy),
+      }).catch(() => {})
+    } else if (drag.type === 'resize') {
+      const d = drag as any
+      const newPx = d._newPx ?? drag.startPositonX
+      const newPy = d._newPy ?? drag.startPositonY
+      const newW = d._newW ?? drag.startWidth
+      const newH = d._newH ?? drag.startHeight
+      await updateSceneItemTransform(state.activeSceneId!, drag.itemId, {
+        ...item.transform,
+        position_x: Math.round(newPx),
+        position_y: Math.round(newPy),
+        width: Math.round(newW),
+        height: Math.round(newH),
+      }).catch(() => {})
+    }
   }
 
   useEffect(() => {
@@ -3344,6 +3436,18 @@ export default function App() {
   }, [previewPlaybackEnabled, state.previewUrl])
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('sbs-source-boxes-visible', sourceBoxesVisible ? 'on' : 'off')
+    }
+  }, [sourceBoxesVisible])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('sbs-preview-status-overlay-visible', previewStatusOverlayVisible ? 'on' : 'off')
+    }
+  }, [previewStatusOverlayVisible])
+
+  useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       const target = event.target as HTMLElement | null
       const tag = target?.tagName ?? ''
@@ -3533,6 +3637,8 @@ export default function App() {
                 <span className="preview-zoom-value" aria-label="Preview zoom">{previewZoomLabel}</span>
                 <button aria-label="Zoom in preview" onClick={() => adjustPreviewZoom(1)} disabled={previewZoom >= PREVIEW_ZOOM_STEPS[PREVIEW_ZOOM_STEPS.length - 1]}>+</button>
                 <button aria-label="Fit preview to window" onClick={() => setPreviewZoom(1)}>Fit</button>
+                <button className={sourceBoxesVisible ? 'active' : ''} aria-label="Toggle transform guides" onClick={() => setSourceBoxesVisible((visible) => !visible)}>{sourceBoxesVisible ? 'Guides On' : 'Guides Off'}</button>
+                <button className={previewStatusOverlayVisible ? 'active' : ''} aria-label="Toggle preview status overlay" onClick={() => setPreviewStatusOverlayVisible((visible) => !visible)}>{previewStatusOverlayVisible ? 'Status On' : 'Status Off'}</button>
               </div>
             </div>
             <div className="button-row">
@@ -3547,7 +3653,14 @@ export default function App() {
             </div>
           </div>
 
-          <div className="obs-preview-wrapper panel" ref={previewWrapperRef} onWheel={handlePreviewWheel}>
+          <div
+            className="obs-preview-wrapper panel"
+            ref={previewWrapperRef}
+            onWheel={handlePreviewWheel}
+            onMouseMove={(event) => updatePreviewDrag(event.clientX, event.clientY)}
+            onMouseUp={() => { finishPreviewDrag().catch(() => {}) }}
+            onMouseLeave={() => { finishPreviewDrag().catch(() => {}) }}
+          >
             <div className="preview-screen obs-preview-screen" style={previewScreenStyle}>
               <video id="preview-video" autoPlay playsInline />
               <div
@@ -3579,85 +3692,8 @@ export default function App() {
                     setContextMenu(null)
                   }
                 }}
-                onMouseMove={(e) => {
-                  const drag = dragRef.current
-                  if (!drag) return
-                  const pr = getPreviewRect()
-                  if (!pr) return
-                  const dx = e.clientX - drag.startMouseX
-                  const dy = e.clientY - drag.startMouseY
-                  const sx = canvasW / pr.width
-                  const sy = canvasH / pr.height
-                  const bbox = document.querySelector(`.source-bbox[data-item-id="${drag.itemId}"]`) as HTMLElement | null
-                  if (drag.type === 'move') {
-                    let newPx = drag.startPositonX + dx * sx
-                    let newPy = drag.startPositonY + dy * sy
-                    let newW = drag.startWidth
-                    let newH = drag.startHeight
-                    const snapped = snapToCanvas(newPx, newPy, newW, newH)
-                    if (bbox) {
-                      const mapped = canvasToPreview(snapped.px, snapped.py, newW, newH)
-                      bbox.style.left = mapped.x + 'px'
-                      bbox.style.top = mapped.y + 'px'
-                    }
-                    dragRef.current = { ...drag, _newPx: snapped.px, _newPy: snapped.py } as any
-                  } else if (drag.type === 'resize' && drag.handle) {
-                    const h = drag.handle
-                    let newPx = drag.startPositonX
-                    let newPy = drag.startPositonY
-                    let newW = drag.startWidth
-                    let newH = drag.startHeight
-                    const dxC = dx * sx
-                    const dyC = dy * sy
-
-                    if (h.includes('e')) newW = Math.max(MIN_SIZE, drag.startWidth + dxC)
-                    if (h.includes('w')) { newW = Math.max(MIN_SIZE, drag.startWidth - dxC); newPx = drag.startPositonX + drag.startWidth - newW }
-                    if (h.includes('n')) { newH = Math.max(MIN_SIZE, drag.startHeight - dyC); newPy = drag.startPositonY + drag.startHeight - newH }
-                    if (h.includes('s')) newH = Math.max(MIN_SIZE, drag.startHeight + dyC)
-
-                    const snapped = snapToCanvas(newPx, newPy, newW, newH)
-                    if (bbox) {
-                      const mapped = canvasToPreview(snapped.px, snapped.py, snapped.w, snapped.h)
-                      bbox.style.left = mapped.x + 'px'
-                      bbox.style.top = mapped.y + 'px'
-                      bbox.style.width = mapped.w + 'px'
-                      bbox.style.height = mapped.h + 'px'
-                    }
-                    dragRef.current = { ...drag, _newPx: snapped.px, _newPy: snapped.py, _newW: snapped.w, _newH: snapped.h } as any
-                  }
-                }}
-                onMouseUp={async () => {
-                  const drag = dragRef.current
-                  if (!drag) return
-                  dragRef.current = null
-                  const scene = (state.scenes as Record<string, any>)[state.activeSceneId!]
-                  if (!scene) return
-                  const item = (scene.items as any[])?.find((it: any) => it.id === drag.itemId)
-                  if (!item) return
-                  if (drag.type === 'move') {
-                    const d = drag as any
-                    const newPx = d._newPx ?? drag.startPositonX
-                    const newPy = d._newPy ?? drag.startPositonY
-                    await updateSceneItemTransform(state.activeSceneId!, drag.itemId, {
-                      ...item.transform,
-                      position_x: Math.round(newPx),
-                      position_y: Math.round(newPy),
-                    }).catch(() => {})
-                  } else if (drag.type === 'resize') {
-                    const d = drag as any
-                    const newPx = d._newPx ?? drag.startPositonX
-                    const newPy = d._newPy ?? drag.startPositonY
-                    const newW = d._newW ?? drag.startWidth
-                    const newH = d._newH ?? drag.startHeight
-                    await updateSceneItemTransform(state.activeSceneId!, drag.itemId, {
-                      ...item.transform,
-                      position_x: Math.round(newPx),
-                      position_y: Math.round(newPy),
-                      width: Math.round(newW),
-                      height: Math.round(newH),
-                    }).catch(() => {})
-                  }
-                }}
+                onMouseMove={(e) => updatePreviewDrag(e.clientX, e.clientY)}
+                onMouseUp={() => { finishPreviewDrag().catch(() => {}) }}
                 onContextMenu={(e) => {
                   const target = e.target as HTMLElement
                   const bbox = target.closest('.source-bbox') as HTMLElement | null
@@ -3696,6 +3732,7 @@ export default function App() {
                 }}
               >
                 {(() => {
+                  if (!sourceBoxesVisible) return null
                   const scene = state.activeSceneId ? (state.scenes as Record<string, any>)[state.activeSceneId] : null
                   if (!scene?.items) return null
                   return (scene.items as any[]).map((item: any) => {
@@ -3703,6 +3740,9 @@ export default function App() {
                     const t = item.transform || {}
                     const mapped = canvasToPreviewLocal(t.position_x || 0, t.position_y || 0, t.width || 640, t.height || 360)
                     const isSelected = state.selectedSceneItemId === item.id
+                    const isOffCanvas = (t.position_x || 0) < 0 || (t.position_y || 0) < 0 ||
+                      (t.position_x || 0) + (t.width || 640) > canvasW ||
+                      (t.position_y || 0) + (t.height || 360) > canvasH
   function startResize(e: React.MouseEvent, handle: string) {
     if (!state.selectedSceneItemId || !state.activeSceneId) return
     const scene = (state.scenes as Record<string, any>)[state.activeSceneId]
@@ -3725,7 +3765,7 @@ export default function App() {
   return (
                       <div
                         key={item.id}
-                        className={`source-bbox ${isSelected ? 'source-bbox--selected' : ''}`}
+                        className={`source-bbox ${isSelected ? 'source-bbox--selected' : ''} ${isOffCanvas ? 'source-bbox--offcanvas' : ''}`}
                         data-item-id={item.id}
                         style={{ left: mapped.x, top: mapped.y, width: mapped.w, height: mapped.h }}
                       >
@@ -3746,16 +3786,18 @@ export default function App() {
                   })
                 })()}
               </div>
-              <div className="preview-overlay">
-                <strong>{state.previewStatus.toUpperCase()}</strong>
-                <span>{state.previewMessage}</span>
-                {state.selectedPreviewProfile ? (
-                  <span>{state.selectedPreviewProfile.id} · {state.selectedPreviewProfile.codec.toUpperCase()} · {state.selectedPreviewProfile.transport.toUpperCase()}</span>
-                ) : null}
-                {state.lastSnapshot ? (
-                  <a href={state.lastSnapshot.url} target="_blank" rel="noreferrer">Open Snapshot</a>
-                ) : null}
-              </div>
+              {previewStatusOverlayVisible && (
+                <div className="preview-overlay">
+                  <strong>{state.previewStatus.toUpperCase()}</strong>
+                  <span>{state.previewMessage}</span>
+                  {state.selectedPreviewProfile ? (
+                    <span>{state.selectedPreviewProfile.id} · {state.selectedPreviewProfile.codec.toUpperCase()} · {state.selectedPreviewProfile.transport.toUpperCase()}</span>
+                  ) : null}
+                  {state.lastSnapshot ? (
+                    <a href={state.lastSnapshot.url} target="_blank" rel="noreferrer">Open Snapshot</a>
+                  ) : null}
+                </div>
+              )}
             </div>
           </div>
 

@@ -548,6 +548,7 @@ select {
   font-size: 10px;
   line-height: 1.25;
 }
+.preview-zoom-controls button.active { color: #fff; border-color: #4d5f98; background: #2c3555; }
 .preview-zoom-value {
   min-width: 34px;
   text-align: center;
@@ -574,7 +575,7 @@ select {
   margin: auto;
   border: 1px solid #333;
   background: #0a0a0a;
-  overflow: hidden;
+  overflow: visible;
 }
 .obs-preview-screen { height: 100%; }
 .preview-screen video {
@@ -1560,18 +1561,29 @@ select {
 .obs-cli-row button { padding: 3px 10px; font-size: 11px; }
 
 /* ── Source Overlay (preview bbox controls) ──────────── */
-.source-overlay { position: absolute; inset: 0; z-index: 3; cursor: default; }
+.source-overlay { position: absolute; inset: 0; z-index: 3; cursor: default; overflow: visible; }
 .source-bbox {
   position: absolute;
   border: 1px dashed rgba(255,255,255,0.3);
   background: rgba(100,149,237,0.04);
   cursor: grab;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.35);
 }
 .source-bbox:hover { background: rgba(100,149,237,0.1); }
 .source-bbox--selected {
   border: 2px solid rgba(100,180,255,0.8);
   background: rgba(100,149,237,0.08);
   cursor: grab;
+}
+.source-bbox--offcanvas {
+  box-shadow: 0 8px 18px rgba(0,0,0,0.55), 0 0 0 1px rgba(0,0,0,0.65);
+}
+.source-bbox--offcanvas::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(255,255,255,0.18);
+  pointer-events: none;
 }
 .source-bbox--selected:active { cursor: grabbing; }
 .bbox-rh {
