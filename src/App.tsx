@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type Dispatch, type FormEvent, type SetStateAction } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import Hls from 'hls.js'
-import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createApiKey, createInstance, createOutput, createScene, createSource, deleteApiKey, describeSourceKind, discoverV4L2, disableInstance, enableInstance, getEncoderConfig, getPreviewEncoderConfig, getState, listApiKeys, listSourceKinds, loginApiKey, loginAuth, logoutAuth, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPasswordlessAuth, setPreviewScene, setSceneItemAudio, setupAuth, startPreviewSession, subscribe, transitionToPreview, updateAuthCredentials, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
+import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createApiKey, createInstance, createOutput, createScene, createSource, deleteApiKey, describeSourceKind, discoverV4L2, disableInstance, enableInstance, exportConfigBundle, getEncoderConfig, getPreviewEncoderConfig, getState, importConfigBundle, listApiKeys, listSourceKinds, loginApiKey, loginAuth, logoutAuth, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPasswordlessAuth, setPreviewScene, setSceneItemAudio, setupAuth, startPreviewSession, subscribe, transitionToPreview, updateAuthCredentials, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
 
 import type { SourceKind, SourceKindField, V4L2Device, V4L2Format, V4L2FrameInterval, V4L2Resolution } from './types'
 
@@ -147,13 +147,14 @@ export default function App() {
   const [filterAmountDrafts, setFilterAmountDrafts] = useState<Record<string, string>>({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<'canvas' | 'encoder' | 'preview' | 'output' | 'auth'>('canvas')
+  const [settingsTab, setSettingsTab] = useState<'canvas' | 'encoder' | 'preview' | 'output' | 'auth' | 'config'>('canvas')
   const [settingsCanvas, setSettingsCanvas] = useState({ width: 1920, height: 1080, fps_num: 60, fps_den: 1, color_mode: 'sdr', background_color: '#000000' })
   const [editingOutputId, setEditingOutputId] = useState<string | null>(null)
   const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: '20000', keyframe_interval: '60', gop_preset: 'low_delay', enable_b_frames: false, rc_mode: '0' })
   const [editOutputTransport, setEditOutputTransport] = useState<Record<string, string>>({})
   const [previewEncoder, setPreviewEncoder] = useState({ width: '1280', height: '720', framerate: '30', bitrate_kbps: '2500' })
   const [authSettings, setAuthSettings] = useState({ passwordless: false, username: 'admin', password: '' })
+  const [configImportText, setConfigImportText] = useState('')
   const [fadeDurationMs, setFadeDurationMs] = useState('2000')
   const [previewZoom, setPreviewZoom] = useState(1)
   const [previewViewport, setPreviewViewport] = useState({ width: 0, height: 0 })
@@ -336,6 +337,60 @@ export default function App() {
     } catch (error) {
       setStatus(`API key deletion failed: ${error instanceof Error ? error.message : String(error)}`)
     }
+  }
+
+  function serializeConfig(bundle: Record<string, unknown>) {
+    return `${JSON.stringify(bundle, null, 2)}\n`
+  }
+
+  function parseConfig(text: string) {
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Config import must be an object')
+    }
+    return parsed as Record<string, unknown>
+  }
+
+  function downloadConfigFile(text: string) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace(/Z$/, 'Z')
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `sbs-config-${stamp}.json`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function handleExportConfig() {
+    setStatus('Exporting JSON config...')
+    try {
+      const bundle = await exportConfigBundle()
+      downloadConfigFile(serializeConfig(bundle))
+      setStatus('Config exported as JSON')
+    } catch (error) {
+      setStatus(`Config export failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  async function handleImportConfig() {
+    setStatus('Importing JSON config...')
+    try {
+      const bundle = parseConfig(configImportText)
+      await importConfigBundle(bundle)
+      setConfigImportText('')
+      setStatus('Config imported and applied')
+    } catch (error) {
+      setStatus(`Config import failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  async function handleConfigFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+    setConfigImportText(await file.text())
+    event.target.value = ''
   }
 
   useEffect(() => {
@@ -1913,6 +1968,35 @@ export default function App() {
         </>
       )
     }
+    if (settingsTab === 'config') {
+      return (
+        <>
+          <div className="settings-warning">Import replaces the active SBS scenes, sources, outputs, canvas, and audio settings, then restarts affected runtime pipelines.</div>
+          <div className="settings-section-title">Export Configuration</div>
+          <div className="settings-row">
+            <label>Download</label>
+            <div className="settings-inline">
+              <button type="button" onClick={() => handleExportConfig()}>Export JSON</button>
+            </div>
+          </div>
+          <div className="settings-section-title">Import Configuration</div>
+          <div className="settings-row">
+            <label>File</label>
+            <input type="file" accept=".json,application/json" onChange={handleConfigFile} />
+          </div>
+          <textarea
+            className="config-import-text"
+            value={configImportText}
+            onChange={(e) => setConfigImportText(e.target.value)}
+            placeholder="Paste an SBS config bundle as JSON, or choose a JSON file above."
+          />
+          <div className="settings-inline">
+            <button type="button" className="btn-primary" onClick={() => handleImportConfig()} disabled={!configImportText.trim()}>Import and Apply</button>
+            <button type="button" onClick={() => setConfigImportText('')} disabled={!configImportText}>Clear</button>
+          </div>
+        </>
+      )
+    }
     // output tab
     return (
       <>
@@ -2029,6 +2113,7 @@ export default function App() {
                 })
                 setSettingsTab('auth')
               }}>Auth</button>
+              <button className={settingsTab === 'config' ? 'active' : ''} onClick={() => setSettingsTab('config')}>Config</button>
             </nav>
             <div className="settings-body">
               {renderSettingsBody()}
@@ -2036,7 +2121,7 @@ export default function App() {
           </div>
           <div className="settings-footer">
             <button onClick={() => setSettingsOpen(false)}>Cancel</button>
-            {settingsTab === 'canvas' ? (
+            {settingsTab === 'config' ? null : settingsTab === 'canvas' ? (
               <>
                 <button onClick={() => saveCanvasSettings()}>Save</button>
                 <button className="btn-primary" onClick={() => applySettings()} disabled={!state.canvasRestartRequired}>Apply</button>

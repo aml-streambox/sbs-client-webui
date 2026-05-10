@@ -203,6 +203,14 @@ select {
 .auth-key-row div { display: grid; gap: 2px; min-width: 0; }
 .auth-key-row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .auth-key-row span { color: var(--muted); font-size: 11px; }
+.config-import-text {
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
 
 /* ── Instance Dropdown ───────────────────────────────── */
 .instance-dropdown { position: relative; }

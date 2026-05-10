@@ -424,6 +424,16 @@ export async function refreshState() {
   emit()
 }
 
+export async function exportConfigBundle() {
+  return api.rpc<Record<string, unknown>>('config.export')
+}
+
+export async function importConfigBundle(bundle: Record<string, unknown>) {
+  const result = await api.rpc<{ ok: boolean }>('config.import', bundle)
+  await refreshState()
+  return result
+}
+
 export async function createInstance(name: string) {
   const result = await api.rpc<InstanceSummary>('instance.create', { name })
   await refreshInstances()
