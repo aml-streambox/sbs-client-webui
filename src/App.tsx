@@ -10,6 +10,7 @@ type WorkspaceMode = 'desktop' | 'tablet' | 'phone'
 type PhoneSection = 'scenes' | 'sources' | 'audio' | 'outputs' | 'more'
 type ResizeKey = 'leftWidth' | 'rightWidth' | 'bottomHeight' | 'leftTopRatio' | 'bottomLeftRatio'
 type DockLayout = Record<DockRegion, DockPanel[]>
+type AudioFilterType = 'channel_gain' | 'delay' | 'eq'
 
 const DOCK_STORAGE_KEY = 'sbs-webui-dock-layout-v1'
 const DOCK_SIZE_STORAGE_KEY = 'sbs-webui-dock-sizes-v1'
@@ -23,6 +24,7 @@ const DEFAULT_DOCK_LAYOUT: DockLayout = {
 }
 
 const PREVIEW_ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
+const EQ_BAND_LABELS = ['31 Hz', '62 Hz', '125 Hz', '250 Hz', '500 Hz', '1 kHz', '2 kHz', '4 kHz', '8 kHz', '16 kHz']
 
 function workspaceModeForViewport(width: number, height: number, coarsePointer = false): WorkspaceMode {
   if (width < 700 || (coarsePointer && height <= 600)) return 'phone'
@@ -139,6 +141,10 @@ export default function App() {
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; itemId: string } | null>(null)
   const [sourceContextMenu, setSourceContextMenu] = useState<{ x: number; y: number; sourceId: string } | null>(null)
   const [sceneContextMenu, setSceneContextMenu] = useState<{ x: number; y: number; sceneId: string } | null>(null)
+  const [audioContextMenu, setAudioContextMenu] = useState<{ x: number; y: number; sceneId: string; itemId: string; sourceId: string } | null>(null)
+  const [audioFilterEditor, setAudioFilterEditor] = useState<{ type: AudioFilterType; sceneId: string; itemId: string; sourceId: string } | null>(null)
+  const [masterAudioContextMenu, setMasterAudioContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const [masterAudioFilterEditor, setMasterAudioFilterEditor] = useState<Extract<AudioFilterType, 'channel_gain' | 'eq'> | null>(null)
   const [sourceEditConfig, setSourceEditConfig] = useState<Record<string, string>>({})
   const [sourceEditName, setSourceEditName] = useState('')
   const [sourceEditEnabled, setSourceEditEnabled] = useState(true)
@@ -488,6 +494,28 @@ export default function App() {
   }, [sceneContextMenu])
 
   useEffect(() => {
+    if (!audioContextMenu) return
+    function onClickOutside(e: MouseEvent) {
+      const menu = document.querySelector('.audio-context-menu')
+      if (menu && menu.contains(e.target as Node)) return
+      setAudioContextMenu(null)
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [audioContextMenu])
+
+  useEffect(() => {
+    if (!masterAudioContextMenu) return
+    function onClickOutside(e: MouseEvent) {
+      const menu = document.querySelector('.master-audio-context-menu')
+      if (menu && menu.contains(e.target as Node)) return
+      setMasterAudioContextMenu(null)
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [masterAudioContextMenu])
+
+  useEffect(() => {
     setDockLayout(loadDockLayout())
     setDockSizes(loadDockSizes())
   }, [])
@@ -622,8 +650,130 @@ export default function App() {
     return `${Math.round(volume * 100)}%`
   }
 
+  function audioEqBands(audio: any) {
+    const bands = Array.isArray(audio?.eq_bands) ? audio.eq_bands : []
+    return Array.from({ length: 10 }, (_, index) => Number.isFinite(Number(bands[index])) ? Number(bands[index]) : 0)
+  }
+
+  function masterEqBands() {
+    const bands = Array.isArray(state.audio.master_eq_bands) ? state.audio.master_eq_bands : []
+    return Array.from({ length: 10 }, (_, index) => Number.isFinite(Number(bands[index])) ? Number(bands[index]) : 0)
+  }
+
+  function equalizerCurvePath(bands: number[], width = 360, height = 140) {
+    const padX = 18
+    const padY = 16
+    const usableW = width - padX * 2
+    const usableH = height - padY * 2
+    const points = bands.map((band, index) => {
+      const x = padX + (usableW * index) / Math.max(1, bands.length - 1)
+      const y = padY + usableH / 2 - (Math.max(-12, Math.min(12, band)) / 12) * (usableH / 2)
+      return { x, y }
+    })
+    if (points.length === 0) return ''
+    if (points.length === 1) return `M ${points[0].x} ${points[0].y}`
+    return points.reduce((path, point, index) => {
+      if (index === 0) return `M ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
+      const prev = points[index - 1]
+      const cx = ((prev.x + point.x) / 2).toFixed(2)
+      return `${path} C ${cx} ${prev.y.toFixed(2)}, ${cx} ${point.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`
+    }, '')
+  }
+
+  function renderEqualizerCurve(bands: number[]) {
+    const width = 360
+    const height = 140
+    const padX = 18
+    const padY = 16
+    const usableW = width - padX * 2
+    const usableH = height - padY * 2
+    const centerY = padY + usableH / 2
+    const path = equalizerCurvePath(bands, width, height)
+    const areaPath = path ? `${path} L ${width - padX} ${centerY} L ${padX} ${centerY} Z` : ''
+    const points = bands.map((band, index) => ({
+      x: padX + (usableW * index) / Math.max(1, bands.length - 1),
+      y: padY + usableH / 2 - (Math.max(-12, Math.min(12, band)) / 12) * (usableH / 2),
+      band,
+    }))
+
+    return (
+      <div className="audio-eq-curve-card" aria-label="Equalizer frequency response curve">
+        <div className="audio-eq-curve-header">
+          <strong>Frequency Response</strong>
+          <small>Boosts rise above 0 dB, cuts dip below it.</small>
+        </div>
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Equalizer curve">
+          <defs>
+            <linearGradient id="eqCurveFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#536ff0" stopOpacity="0.16" />
+              <stop offset="100%" stopColor="#536ff0" stopOpacity="0.04" />
+            </linearGradient>
+          </defs>
+          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => (
+            <line key={`h-${ratio}`} className={ratio === 0.5 ? 'eq-zero-line' : 'eq-grid-line'} x1={padX} x2={width - padX} y1={padY + usableH * ratio} y2={padY + usableH * ratio} />
+          ))}
+          {points.map((point, index) => (
+            <line key={`v-${index}`} className="eq-grid-line" x1={point.x} x2={point.x} y1={padY} y2={height - padY} />
+          ))}
+          {areaPath && <path className="eq-curve-fill" d={areaPath} />}
+          {path && <path className="eq-curve-stroke" d={path} />}
+          {points.map((point, index) => (
+            <g key={`p-${index}`}>
+              <circle className="eq-curve-point" cx={point.x} cy={point.y} r="3.5" />
+              <title>{`${EQ_BAND_LABELS[index]}: ${point.band} dB`}</title>
+            </g>
+          ))}
+        </svg>
+        <div className="audio-eq-curve-labels">
+          <span>{EQ_BAND_LABELS[0]}</span>
+          <span>Frequency (Hz)</span>
+          <span>{EQ_BAND_LABELS[EQ_BAND_LABELS.length - 1]}</span>
+        </div>
+      </div>
+    )
+  }
+
+  function renderEqualizerFaders(
+    bands: number[],
+    disabled: boolean,
+    onBandChange: (index: number, value: number) => void,
+  ) {
+    return (
+      <div className="audio-eq-fader-bank" aria-label="Equalizer band controls">
+        {bands.map((band, index) => (
+          <label key={index} className="audio-eq-fader-strip">
+            <span className="audio-eq-fader-value">{band > 0 ? `+${band}` : band} dB</span>
+            <input
+              className="audio-eq-fader"
+              type="range"
+              min="-12"
+              max="12"
+              step="1"
+              value={band}
+              disabled={disabled}
+              aria-label={`${EQ_BAND_LABELS[index]} gain`}
+              onChange={(event) => onBandChange(index, Number(event.target.value))}
+            />
+            <input
+              className="audio-eq-number"
+              type="number"
+              min="-12"
+              max="12"
+              step="1"
+              value={band}
+              disabled={disabled}
+              aria-label={`${EQ_BAND_LABELS[index]} gain dB`}
+              onChange={(event) => onBandChange(index, Number(event.target.value))}
+            />
+            <span className="audio-eq-fader-label">{EQ_BAND_LABELS[index]}</span>
+          </label>
+        ))}
+      </div>
+    )
+  }
+
   function audioStateForSource(source: any) {
-    return source?.audio ?? { enabled: false, device: null, volume: 1, mute: false, monitor: false }
+    return source?.audio ?? { enabled: false, device: null, volume: 1, left_gain: 1, right_gain: 1, delay_ms: 0, eq_bands: audioEqBands(null), mute: false, monitor: false }
   }
 
   function audioStateForSceneItem(item: any, source: any) {
@@ -640,6 +790,12 @@ export default function App() {
       Boolean(patch.monitor ?? audio.monitor ?? false),
       String(patch.device ?? audio.device ?? source?.audio?.device ?? 'hw:0,2'),
       Boolean(patch.enabled ?? audio.enabled ?? true),
+      {
+        left_gain: Number(patch.left_gain ?? audio.left_gain ?? 1),
+        right_gain: Number(patch.right_gain ?? audio.right_gain ?? 1),
+        delay_ms: Number(patch.delay_ms ?? audio.delay_ms ?? 0),
+        eq_bands: patch.eq_bands ?? audioEqBands(audio),
+      },
     )
   }
 
@@ -2481,6 +2637,150 @@ export default function App() {
     )
   }
 
+  function renderAudioFilterDialog() {
+    if (!audioFilterEditor) return null
+    const scene = (state.scenes as Record<string, any>)[audioFilterEditor.sceneId]
+    const item = (scene?.items as any[])?.find((entry: any) => entry.id === audioFilterEditor.itemId)
+    const source = (state.sources as Record<string, any>)[audioFilterEditor.sourceId]
+    if (!item || !source) return null
+
+    const audio = audioStateForSceneItem(item, source)
+    const enabled = audio.enabled !== false
+    const eqBands = audioEqBands(audio)
+    const device = audio.device || source.audio?.device || 'hw:0,2'
+    const setAudio = (patch: Record<string, unknown>) => updateSceneItemAudio(audioFilterEditor.sceneId, item, source, { device, ...patch })
+    const title = audioFilterEditor.type === 'channel_gain'
+      ? 'Audio Filter: Channel Gain'
+      : audioFilterEditor.type === 'delay'
+        ? 'Audio Filter: Delay'
+        : 'Audio Filter: Equalizer'
+
+    return (
+      <div className="settings-overlay" onClick={() => setAudioFilterEditor(null)}>
+        <div className="settings-dialog audio-filter-dialog" role="dialog" aria-modal="true" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
+          <div className="settings-header">
+            <h2>{title}</h2>
+            <button onClick={() => setAudioFilterEditor(null)}>X</button>
+          </div>
+          <div className="settings-body audio-filter-body">
+            <div className="source-config-summary">
+              <strong>{source.name}</strong>
+              <span>{device}</span>
+              <small>{enabled ? 'Audio filter is active' : 'Enable audio on this strip to hear filter changes'}</small>
+            </div>
+            {audioFilterEditor.type === 'channel_gain' && (
+              <>
+                <label className="filter-property-row">
+                  <div className="filter-label-block"><span>Left Channel Gain</span><small>0% mutes left, 100% is unchanged, 200% is +6 dB.</small></div>
+                  <div className="filter-control-row">
+                    <input type="range" min="0" max="2" step="0.05" value={Number(audio.left_gain ?? 1)} disabled={!enabled} onChange={(event) => setAudio({ left_gain: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
+                    <span className="filter-unit">{formatAudioVolume(audio.left_gain ?? 1)}</span>
+                  </div>
+                </label>
+                <label className="filter-property-row">
+                  <div className="filter-label-block"><span>Right Channel Gain</span><small>0% mutes right, 100% is unchanged, 200% is +6 dB.</small></div>
+                  <div className="filter-control-row">
+                    <input type="range" min="0" max="2" step="0.05" value={Number(audio.right_gain ?? 1)} disabled={!enabled} onChange={(event) => setAudio({ right_gain: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
+                    <span className="filter-unit">{formatAudioVolume(audio.right_gain ?? 1)}</span>
+                  </div>
+                </label>
+              </>
+            )}
+            {audioFilterEditor.type === 'delay' && (
+              <label className="filter-property-row">
+                <div className="filter-label-block"><span>Audio Delay</span><small>Delays this source before mixing, useful for HDMI/video sync.</small></div>
+                <div className="filter-control-row">
+                  <input type="range" min="0" max="5000" step="10" value={Number(audio.delay_ms ?? 0)} disabled={!enabled} onChange={(event) => setAudio({ delay_ms: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
+                  <input className="filter-number-input" type="number" min="0" max="5000" step="10" value={Number(audio.delay_ms ?? 0)} disabled={!enabled} onChange={(event) => setAudio({ delay_ms: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
+                  <span className="filter-unit">ms</span>
+                </div>
+              </label>
+            )}
+            {audioFilterEditor.type === 'eq' && (
+              <>
+                {renderEqualizerCurve(eqBands)}
+                {renderEqualizerFaders(eqBands, !enabled, (index, value) => {
+                  const next = [...eqBands]
+                  next[index] = Math.max(-12, Math.min(12, value))
+                  setAudio({ eq_bands: next }).catch((error) => setStatus(String(error)))
+                })}
+              </>
+            )}
+          </div>
+          <div className="settings-footer">
+            <button onClick={() => setAudioFilterEditor(null)}>Close</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  function renderMasterAudioFilterDialog() {
+    if (!masterAudioFilterEditor) return null
+
+    const eqBands = masterEqBands()
+    const leftGain = Number(state.audio.master_left_gain ?? 1)
+    const rightGain = Number(state.audio.master_right_gain ?? 1)
+    const setMasterFilter = (patch: Record<string, unknown>) => setMasterAudio(state.audio.master_volume, state.audio.master_mute, {
+      left_gain: state.audio.master_left_gain ?? 1,
+      right_gain: state.audio.master_right_gain ?? 1,
+      eq_bands: eqBands,
+      ...patch,
+    })
+    const title = masterAudioFilterEditor === 'channel_gain'
+      ? 'Global Audio Filter: Channel Gain'
+      : 'Global Audio Filter: Equalizer'
+
+    return (
+      <div className="settings-overlay" onClick={() => setMasterAudioFilterEditor(null)}>
+        <div className="settings-dialog audio-filter-dialog" role="dialog" aria-modal="true" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
+          <div className="settings-header">
+            <h2>{title}</h2>
+            <button onClick={() => setMasterAudioFilterEditor(null)}>X</button>
+          </div>
+          <div className="settings-body audio-filter-body">
+            <div className="source-config-summary">
+              <strong>Master Output</strong>
+              <span>Global program audio</span>
+              <small>Applies after all scene sources are mixed.</small>
+            </div>
+            {masterAudioFilterEditor === 'channel_gain' && (
+              <>
+                <label className="filter-property-row">
+                  <div className="filter-label-block"><span>Left Channel Gain</span><small>0% mutes left, 100% is unchanged, 200% is +6 dB.</small></div>
+                  <div className="filter-control-row">
+                    <input type="range" min="0" max="2" step="0.05" value={leftGain} onChange={(event) => setMasterFilter({ left_gain: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
+                    <span className="filter-unit">{formatAudioVolume(leftGain)}</span>
+                  </div>
+                </label>
+                <label className="filter-property-row">
+                  <div className="filter-label-block"><span>Right Channel Gain</span><small>0% mutes right, 100% is unchanged, 200% is +6 dB.</small></div>
+                  <div className="filter-control-row">
+                    <input type="range" min="0" max="2" step="0.05" value={rightGain} onChange={(event) => setMasterFilter({ right_gain: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
+                    <span className="filter-unit">{formatAudioVolume(rightGain)}</span>
+                  </div>
+                </label>
+              </>
+            )}
+            {masterAudioFilterEditor === 'eq' && (
+              <>
+                {renderEqualizerCurve(eqBands)}
+                {renderEqualizerFaders(eqBands, false, (index, value) => {
+                  const next = [...eqBands]
+                  next[index] = Math.max(-12, Math.min(12, value))
+                  setMasterFilter({ eq_bands: next }).catch((error) => setStatus(String(error)))
+                })}
+              </>
+            )}
+          </div>
+          <div className="settings-footer">
+            <button onClick={() => setMasterAudioFilterEditor(null)}>Close</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   function renderDock(panel: DockPanel) {
     if (panel === 'scenes') {
       return (
@@ -2695,7 +2995,15 @@ export default function App() {
                 const volumeValue = Number(audio.volume ?? 1)
                 const setAudio = (patch: Record<string, unknown>) => updateSceneItemAudio(state.activeSceneId || '', item, source, patch)
                 return (
-                  <div key={item.id} className={`obs-audio-strip ${enabled ? 'enabled' : 'disabled'} ${muted ? 'muted' : ''}`}>
+                  <div
+                    key={item.id}
+                    className={`obs-audio-strip ${enabled ? 'enabled' : 'disabled'} ${muted ? 'muted' : ''}`}
+                    onContextMenu={(event) => {
+                      event.preventDefault()
+                      setAudioContextMenu({ x: event.clientX, y: event.clientY, sceneId: state.activeSceneId || '', itemId: item.id, sourceId: source.id })
+                    }}
+                    title="Right-click for audio filters"
+                  >
                     <div className="obs-audio-scope">{active ? 'Active' : 'Scene'}</div>
                     <button className="obs-audio-name" title={source.name} onClick={() => selectSceneItem(item.id)}>
                       {source.name}
@@ -2726,10 +3034,18 @@ export default function App() {
                       <button className={!muted ? 'active' : ''} disabled={!enabled} onClick={() => setAudio({ mute: !audio.mute, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(`Audio ${audio.mute ? 'unmuted' : 'muted'}: ${source.name}`)).catch((error) => setStatus(String(error)))}>{audio.mute ? 'Muted' : 'Mute'}</button>
                       <button className={audio.monitor ? 'active' : ''} disabled={!enabled} onClick={() => setAudio({ monitor: !audio.monitor, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(`Preview playback ${audio.monitor ? 'off' : 'on'}: ${source.name}`)).catch((error) => setStatus(String(error)))}>{audio.monitor ? 'Preview' : 'No Prev'}</button>
                     </div>
+                    <div className="obs-audio-filter-hint">Filters: right-click</div>
                   </div>
                 )
               })}
-              <div className={`obs-audio-strip master-channel ${state.audio.master_mute ? 'muted' : ''}`}>
+              <div
+                className={`obs-audio-strip master-channel ${state.audio.master_mute ? 'muted' : ''}`}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  setMasterAudioContextMenu({ x: event.clientX, y: event.clientY })
+                }}
+                title="Right-click for global audio filters"
+              >
                 <div className="obs-audio-scope">Global</div>
                 <div className="obs-audio-name static">Master</div>
                 <div className="obs-audio-db">{formatAudioDb(masterLevel.level_db)}</div>
@@ -2742,7 +3058,7 @@ export default function App() {
                     max="2"
                     step="0.05"
                     value={state.audio.master_volume}
-                    onChange={(event) => setMasterAudio(Number(event.target.value), state.audio.master_mute).then(() => setStatus('Master audio updated')).catch((error) => setStatus(String(error)))}
+                    onChange={(event) => setMasterAudio(Number(event.target.value), state.audio.master_mute, { left_gain: state.audio.master_left_gain ?? 1, right_gain: state.audio.master_right_gain ?? 1, eq_bands: masterEqBands() }).then(() => setStatus('Master audio updated')).catch((error) => setStatus(String(error)))}
                     aria-label={`Master volume, ${formatAudioVolume(state.audio.master_volume)}`}
                   />
                   <div className="obs-meter-wrap">
@@ -2754,10 +3070,11 @@ export default function App() {
                   </div>
                 </div>
                 <div className="obs-audio-buttons">
-                  <button className={!state.audio.master_mute ? 'active' : ''} onClick={() => setMasterAudio(state.audio.master_volume, !state.audio.master_mute).then(() => setStatus('Master mute toggled')).catch((error) => setStatus(String(error)))}>
+                  <button className={!state.audio.master_mute ? 'active' : ''} onClick={() => setMasterAudio(state.audio.master_volume, !state.audio.master_mute, { left_gain: state.audio.master_left_gain ?? 1, right_gain: state.audio.master_right_gain ?? 1, eq_bands: masterEqBands() }).then(() => setStatus('Master mute toggled')).catch((error) => setStatus(String(error)))}>
                     {state.audio.master_mute ? 'Muted' : 'Mute'}
                   </button>
                 </div>
+                <div className="obs-audio-filter-hint">Filters: right-click</div>
               </div>
             </div>
           </div>
@@ -3524,6 +3841,43 @@ export default function App() {
               </div>
             )
           })()}
+
+          {audioContextMenu && (() => {
+            const source = (state.sources as Record<string, any>)[audioContextMenu.sourceId]
+            if (!source) return null
+            const openAudioFilter = (type: AudioFilterType) => {
+              setAudioFilterEditor({ type, sceneId: audioContextMenu.sceneId, itemId: audioContextMenu.itemId, sourceId: audioContextMenu.sourceId })
+              setAudioContextMenu(null)
+            }
+            return (
+              <div
+                className="preview-context-menu audio-context-menu"
+                style={{ left: audioContextMenu.x, top: audioContextMenu.y }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="ctx-group-label">Audio Filters</div>
+                <button onClick={() => openAudioFilter('channel_gain')}>Channel Gain</button>
+                <button onClick={() => openAudioFilter('delay')}>Delay</button>
+                <button onClick={() => openAudioFilter('eq')}>Equalizer</button>
+                <div className="ctx-separator" />
+                <div className="ctx-menu-note">{source.name}</div>
+              </div>
+            )
+          })()}
+
+          {masterAudioContextMenu && (
+            <div
+              className="preview-context-menu master-audio-context-menu"
+              style={{ left: masterAudioContextMenu.x, top: masterAudioContextMenu.y }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="ctx-group-label">Global Audio Filters</div>
+              <button onClick={() => { setMasterAudioFilterEditor('channel_gain'); setMasterAudioContextMenu(null) }}>Channel Gain</button>
+              <button onClick={() => { setMasterAudioFilterEditor('eq'); setMasterAudioContextMenu(null) }}>Equalizer</button>
+              <div className="ctx-separator" />
+              <div className="ctx-menu-note">Master Output</div>
+            </div>
+          )}
         </section>
 
         {workspaceMode !== 'desktop' && (
@@ -3573,6 +3927,8 @@ export default function App() {
       {renderSourcePickerDialog()}
       {renderSourceConfigDialog()}
       {renderFiltersDialog()}
+      {renderAudioFilterDialog()}
+      {renderMasterAudioFilterDialog()}
     </div>
   )
 }

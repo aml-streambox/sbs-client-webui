@@ -51,6 +51,9 @@ const state: AppState = {
   audio: {
     device: 'hw:0,2',
     master_volume: 1,
+    master_left_gain: 1,
+    master_right_gain: 1,
+    master_eq_bands: Array.from({ length: 10 }, () => 0),
     master_mute: false,
     levels: {
       sources: {},
@@ -851,8 +854,8 @@ export async function captureSnapshot() {
   return state.lastSnapshot
 }
 
-export async function setSourceAudio(sourceId: string, volume: number, mute: boolean, monitor: boolean, device = 'hw:0,2', enabled = true) {
-  const result = await api.rpc<any>('audio.setSource', { source_id: sourceId, volume, mute, monitor, device, enabled })
+export async function setSourceAudio(sourceId: string, volume: number, mute: boolean, monitor: boolean, device = 'hw:0,2', enabled = true, extra: Record<string, unknown> = {}) {
+  const result = await api.rpc<any>('audio.setSource', { source_id: sourceId, volume, mute, monitor, device, enabled, ...extra })
   state.sources = {
     ...state.sources,
     [sourceId]: result,
@@ -861,8 +864,8 @@ export async function setSourceAudio(sourceId: string, volume: number, mute: boo
   return result
 }
 
-export async function setSceneItemAudio(sceneId: string, itemId: string, volume: number, mute: boolean, monitor: boolean, device = 'hw:0,2', enabled = true) {
-  const result = await api.rpc<any>('audio.setSceneItem', { scene_id: sceneId, item_id: itemId, volume, mute, monitor, device, enabled })
+export async function setSceneItemAudio(sceneId: string, itemId: string, volume: number, mute: boolean, monitor: boolean, device = 'hw:0,2', enabled = true, extra: Record<string, unknown> = {}) {
+  const result = await api.rpc<any>('audio.setSceneItem', { scene_id: sceneId, item_id: itemId, volume, mute, monitor, device, enabled, ...extra })
   state.scenes = {
     ...state.scenes,
     [sceneId]: result,
@@ -871,8 +874,8 @@ export async function setSceneItemAudio(sceneId: string, itemId: string, volume:
   return result
 }
 
-export async function setMasterAudio(volume: number, mute: boolean) {
-  const result = await api.rpc<any>('audio.setMaster', { volume, mute })
+export async function setMasterAudio(volume: number, mute: boolean, extra: Record<string, unknown> = {}) {
+  const result = await api.rpc<any>('audio.setMaster', { volume, mute, ...extra })
   state.audio = result
   emit()
   return result

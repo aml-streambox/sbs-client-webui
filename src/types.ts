@@ -168,7 +168,7 @@ export interface AppState {
   transitionId: string | null
   scenes: Record<string, { id: string; name: string; filters?: SourceFilter[] }>
   transitions: Record<string, { id: string; type: string; duration_ms: number; params?: Record<string, unknown> }>
-  sources: Record<string, { id: string; name: string; type: string; state: string; enabled?: boolean; config?: Record<string, string>; filters?: SourceFilter[] }>
+  sources: Record<string, { id: string; name: string; type: string; state: string; enabled?: boolean; config?: Record<string, string>; filters?: SourceFilter[]; audio?: Record<string, unknown> }>
   outputs: Record<string, { id: string; name: string; state: string }>
   telemetry: {
     compositorFps: number
@@ -184,6 +184,9 @@ export interface AppState {
   audio: {
     device: string
     master_volume: number
+    master_left_gain?: number
+    master_right_gain?: number
+    master_eq_bands?: number[]
     master_mute: boolean
     levels: {
       sources: Record<string, { level_db?: number; peak_db?: number; timestamp_us?: number; monitor?: boolean; active_in_scene?: boolean; effective_mute?: boolean }>
