@@ -34,6 +34,7 @@ export interface PreviewProfile {
     width: number
     height: number
   }
+  downscale_factor: number
   framerate: number
   hardware_decode_preferred: boolean
   requires_additional_encode: boolean

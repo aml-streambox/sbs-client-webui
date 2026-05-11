@@ -158,7 +158,7 @@ export default function App() {
   const [editingOutputId, setEditingOutputId] = useState<string | null>(null)
   const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: '20000', keyframe_interval: '60', gop_preset: 'low_delay', enable_b_frames: false, rc_mode: '0' })
   const [editOutputTransport, setEditOutputTransport] = useState<Record<string, string>>({})
-  const [previewEncoder, setPreviewEncoder] = useState({ width: '1280', height: '720', framerate: '30', bitrate_kbps: '2500' })
+  const [previewEncoder, setPreviewEncoder] = useState({ downscale_factor: '4', width: '480', height: '270', framerate: '30', bitrate_kbps: '2500' })
   const [authSettings, setAuthSettings] = useState({ passwordless: false, username: 'admin', password: '' })
   const [configImportText, setConfigImportText] = useState('')
   const [fadeDurationMs, setFadeDurationMs] = useState('2000')
@@ -1982,8 +1982,7 @@ export default function App() {
           setPreviewController(null)
         }
         await updatePreviewEncoderConfig({
-          width: Number(previewEncoder.width),
-          height: Number(previewEncoder.height),
+          downscale_factor: Number(previewEncoder.downscale_factor),
           framerate: Number(previewEncoder.framerate),
           bitrate_kbps: Number(previewEncoder.bitrate_kbps),
         })
@@ -2122,16 +2121,23 @@ export default function App() {
       )
     }
     if (settingsTab === 'preview') {
+      const previewScale = Number(previewEncoder.downscale_factor) || 4
+      const previewWidth = Math.floor(((state.canvas?.width ?? 0)) / previewScale)
+      const previewHeight = Math.floor(((state.canvas?.height ?? 0)) / previewScale)
       return (
         <>
           <div className="settings-warning">Preview encoder settings for WebRTC preview. If preview is active, Apply restarts it automatically.</div>
           <div className="settings-section-title">Preview Encoder</div>
           <div className="settings-row">
-            <label>Resolution</label>
+            <label>Resolution Scale</label>
             <div className="settings-inline">
-              <input type="number" value={previewEncoder.width} onChange={(e) => setPreviewEncoder((s) => ({ ...s, width: e.target.value }))} />
-              <span>x</span>
-              <input type="number" value={previewEncoder.height} onChange={(e) => setPreviewEncoder((s) => ({ ...s, height: e.target.value }))} />
+              <select value={previewEncoder.downscale_factor} onChange={(e) => setPreviewEncoder((s) => ({ ...s, downscale_factor: e.target.value }))}>
+                <option value="1">1x original</option>
+                <option value="2">2x downscale</option>
+                <option value="4">4x downscale</option>
+                <option value="8">8x downscale</option>
+              </select>
+              <span>{previewWidth}x{previewHeight}</span>
             </div>
           </div>
           <div className="settings-row">
@@ -2346,6 +2352,7 @@ export default function App() {
                   setPreviewEncoder({
                     width: String(cfg.width || 1280),
                     height: String(cfg.height || 720),
+                    downscale_factor: String(cfg.downscale_factor || 4),
                     framerate: String(cfg.framerate || 30),
                     bitrate_kbps: String(cfg.bitrate_kbps || 2500),
                   })

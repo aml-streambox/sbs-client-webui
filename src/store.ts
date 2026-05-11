@@ -575,7 +575,7 @@ export async function getPreviewEncoderConfig(profileId?: string) {
   return api.rpc('preview.getEncoderConfig', { profile_id: profileId || 'preview-h264-webrtc' })
 }
 
-export async function updatePreviewEncoderConfig(config: { width?: number; height?: number; framerate?: number; bitrate_kbps?: number }, profileId?: string) {
+export async function updatePreviewEncoderConfig(config: { downscale_factor?: number; framerate?: number; bitrate_kbps?: number }, profileId?: string) {
   return api.rpc('preview.updateEncoderConfig', { profile_id: profileId || 'preview-h264-webrtc', ...config })
 }
 
