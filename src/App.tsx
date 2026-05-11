@@ -1914,8 +1914,14 @@ export default function App() {
     setStatus('Workspace layout reset')
   }
 
-  function openSettings() {
-    const canvasState = state.pendingCanvas || state.canvas
+  async function openSettings() {
+    let latestState = state
+    try {
+      await refreshState()
+      latestState = getState()
+    } catch (_) {}
+
+    const canvasState = latestState.pendingCanvas || latestState.canvas
     if (canvasState) {
       setSettingsCanvas({
         width: canvasState.width || 1920,
@@ -1959,7 +1965,7 @@ export default function App() {
 
   async function applySettings() {
     if (settingsTab === 'canvas') {
-      await applyCanvas().then(() => {
+      await updateCanvas(canvasSettingsPatch()).then(() => applyCanvas()).then(() => {
         setStatus('Saved canvas settings applied with full reinitialization')
         setSettingsOpen(false)
       }).catch((e) => setStatus(String(e)))
@@ -2032,8 +2038,22 @@ export default function App() {
     setSettingsOpen(false)
   }
 
+  function canvasSettingsPatch() {
+    const currentCanvas = state.pendingCanvas || state.canvas
+    const patch: typeof settingsCanvas = { ...settingsCanvas }
+
+    if (currentCanvas?.width === patch.width) {
+      delete (patch as Partial<typeof settingsCanvas>).width
+    }
+    if (currentCanvas?.height === patch.height) {
+      delete (patch as Partial<typeof settingsCanvas>).height
+    }
+
+    return patch
+  }
+
   async function saveCanvasSettings() {
-    await updateCanvas(settingsCanvas).then(() => setStatus('Canvas settings saved. Waiting for apply.')).catch((e) => setStatus(String(e)))
+    await updateCanvas(canvasSettingsPatch()).then(() => setStatus('Canvas settings saved. Waiting for apply.')).catch((e) => setStatus(String(e)))
   }
 
   function renderSettingsBody() {
@@ -2379,7 +2399,7 @@ export default function App() {
             {settingsTab === 'config' ? null : settingsTab === 'canvas' ? (
               <>
                 <button onClick={() => saveCanvasSettings()}>Save</button>
-                <button className="btn-primary" onClick={() => applySettings()} disabled={!state.canvasRestartRequired}>Apply</button>
+                <button className="btn-primary" onClick={() => applySettings()}>Apply</button>
               </>
             ) : (
               <button className="btn-primary" onClick={() => applySettings()}>Apply</button>

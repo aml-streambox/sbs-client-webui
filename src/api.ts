@@ -212,10 +212,13 @@ export function defaultApiUrl(): string {
   }
   const host = window.location.hostname || '127.0.0.1'
   const port = Number(window.location.port)
-  if (Number.isFinite(port) && port > 0 && port !== 10086) {
-    return `ws://${host}:${Math.max(1, port - 1)}/api`
+  if (port === 10086) {
+    return `ws://${host}:10086/api/v1/ws`
   }
-  return `ws://${host}:10086/api/v1/ws`
+  if (port === 10101) {
+    return `ws://${host}:10100/api`
+  }
+  return `ws://${host}:10100/api`
 }
 
 export function defaultInstanceId(): number {
