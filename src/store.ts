@@ -76,27 +76,6 @@ let webrtcIceBuffer: Array<{ sdpMLineIndex: number; candidate: string }> = []
 let syncing = false
 let pollTimer: number | null = null
 
-function waitForIceGatheringComplete(pc: RTCPeerConnection, timeoutMs = 2500): Promise<void> {
-  if (pc.iceGatheringState === 'complete') {
-    return Promise.resolve()
-  }
-
-  return new Promise((resolve) => {
-    const timeout = window.setTimeout(done, timeoutMs)
-    function done() {
-      window.clearTimeout(timeout)
-      pc.removeEventListener('icegatheringstatechange', onStateChange)
-      resolve()
-    }
-    function onStateChange() {
-      if (pc.iceGatheringState === 'complete') {
-        done()
-      }
-    }
-    pc.addEventListener('icegatheringstatechange', onStateChange)
-  })
-}
-
 async function waitForWebrtcVideoFrames(pc: RTCPeerConnection, timeoutMs = 5000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -744,6 +723,24 @@ async function startWebrtcPreview(profile: PreviewProfile, colorMode: 'hdr10' | 
     webrtcPeerConnection = pc;
 
     webrtcPreviewStream = new MediaStream()
+    const offeredHdr10 = colorMode === 'hdr10' && allowFallback && offerResult.sdp.includes('profile-level-id=6e')
+    const fallbackToSdrReference = async (message: string) => {
+      pc.close()
+      if (webrtcPeerConnection === pc) {
+        webrtcPeerConnection = null
+      }
+      if (webrtcPreviewStream) {
+        for (const track of webrtcPreviewStream.getTracks()) {
+          track.stop()
+        }
+        webrtcPreviewStream = null
+      }
+      await api.rpc('preview.releaseProfile', { profile_id: profile.id }).catch(() => undefined)
+      state.previewStatus = 'connecting'
+      state.previewMessage = message
+      emit()
+      return startWebrtcPreview(profile, 'sdr_reference', false)
+    }
 
     pc.ontrack = (event) => {
       const video = document.getElementById('preview-video') as HTMLVideoElement | null
@@ -818,32 +815,21 @@ async function startWebrtcPreview(profile: PreviewProfile, colorMode: 'hdr10' | 
     webrtcIceBuffer = []
 
     const answer = await pc.createAnswer()
+    const answerSdp = answer.sdp ?? ''
+    if (offeredHdr10 && !answerSdp.includes('profile-level-id=6e')) {
+      return fallbackToSdrReference('Browser rejected HDR10/High10 WebRTC; falling back to SDR reference preview...')
+    }
     await pc.setLocalDescription(answer)
-    await waitForIceGatheringComplete(pc)
 
     await api.rpc('preview.webrtc.answer', {
       profile_id: profile.id,
-      sdp: pc.localDescription?.sdp ?? answer.sdp,
+      sdp: pc.localDescription?.sdp ?? answerSdp,
     })
 
-    if (colorMode === 'hdr10' && allowFallback && offerResult.sdp.includes('profile-level-id=6e')) {
-      const hasFrames = await waitForWebrtcVideoFrames(pc)
+    if (offeredHdr10) {
+      const hasFrames = await waitForWebrtcVideoFrames(pc, 1500)
       if (!hasFrames) {
-        pc.close()
-        if (webrtcPeerConnection === pc) {
-          webrtcPeerConnection = null
-        }
-        if (webrtcPreviewStream) {
-          for (const track of webrtcPreviewStream.getTracks()) {
-            track.stop()
-          }
-          webrtcPreviewStream = null
-        }
-        await api.rpc('preview.releaseProfile', { profile_id: profile.id }).catch(() => undefined)
-        state.previewStatus = 'connecting'
-        state.previewMessage = 'Browser did not negotiate HDR10/High10 WebRTC; falling back to SDR reference preview...'
-        emit()
-        return startWebrtcPreview(profile, 'sdr_reference', false)
+        return fallbackToSdrReference('Browser did not decode HDR10/High10 WebRTC; falling back to SDR reference preview...')
       }
     }
 
