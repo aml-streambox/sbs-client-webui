@@ -1,5 +1,5 @@
 import { SbsClientApi, defaultApiHost, defaultApiUrl, defaultInstanceId } from './api'
-import type { AppState, InstanceSummary, PreviewProfile, PubSubEvent, SourceKind, V4L2Device } from './types'
+import type { ALSADevice, AppState, InstanceSummary, PreviewProfile, PubSubEvent, SourceKind, V4L2Device } from './types'
 
 const listeners = new Set<() => void>()
 const instanceId = defaultInstanceId()
@@ -95,6 +95,21 @@ function waitForIceGatheringComplete(pc: RTCPeerConnection, timeoutMs = 2500): P
     }
     pc.addEventListener('icegatheringstatechange', onStateChange)
   })
+}
+
+async function waitForWebrtcVideoFrames(pc: RTCPeerConnection, timeoutMs = 5000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    const stats = await pc.getStats()
+    for (const entry of stats.values()) {
+      const inbound = entry as any
+      if (inbound.type === 'inbound-rtp' && inbound.kind === 'video' && ((inbound.framesDecoded ?? 0) > 0 || (inbound.framesReceived ?? 0) > 0)) {
+        return true
+      }
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 250))
+  }
+  return false
 }
 
 function emit() {
@@ -542,6 +557,10 @@ export async function discoverV4L2() {
   return api.rpc<{ devices: V4L2Device[] }>('source.discoverV4L2')
 }
 
+export async function discoverALSA() {
+  return api.rpc<{ devices: ALSADevice[] }>('source.discoverALSA')
+}
+
 export async function uploadSourceAsset(assetKind: 'image' | 'media' | 'font', filename: string, dataBase64: string) {
   return api.rpc<{ asset_kind: string; filename: string; path: string; uri: string; size: number }>('source.uploadAsset', {
     asset_kind: assetKind,
@@ -706,16 +725,19 @@ export async function startPreviewSession() {
   }
 }
 
-async function startWebrtcPreview(profile: PreviewProfile) {
+async function startWebrtcPreview(profile: PreviewProfile, colorMode: 'hdr10' | 'sdr_reference' = 'hdr10', allowFallback = true): Promise<{ profileId: string; stop: () => Promise<void> }> {
   state.previewStatus = 'connecting'
-  state.previewMessage = 'Starting WebRTC preview...'
+  state.previewMessage = colorMode === 'hdr10'
+    ? 'Starting HDR10 WebRTC preview...'
+    : 'Starting browser-compatible reference preview...'
   emit()
+  const referenceMessage = 'SDR reference preview: browser does not support HDR10/High10 WebRTC here. Check output/SRT for accurate color.'
 
   try {
     // Request SDP offer from server
-    const offerResult = await api.rpc<{ profile_id: string; type: string; sdp: string; iceCandidates?: Array<{ sdpMLineIndex: number; candidate: string }> }>(
+    const offerResult = await api.rpc<{ profile_id: string; type: string; sdp: string; color_mode?: string; reference_color?: boolean; iceCandidates?: Array<{ sdpMLineIndex: number; candidate: string }> }>(
       'preview.webrtc.start',
-      { profile_id: profile.id }
+      { profile_id: profile.id, color_mode: colorMode }
     )
 
     const pc = new RTCPeerConnection({})
@@ -738,11 +760,13 @@ async function startWebrtcPreview(profile: PreviewProfile) {
         video.muted = false
         video.volume = 1
         video.play().catch((error) => {
-          state.previewMessage = `WebRTC ready; click preview to play audio (${error instanceof Error ? error.message : 'autoplay blocked'})`
+          state.previewMessage = colorMode === 'sdr_reference'
+            ? referenceMessage
+            : `WebRTC ready; click preview to play audio (${error instanceof Error ? error.message : 'autoplay blocked'})`
           emit()
         })
         state.previewStatus = 'active'
-        state.previewMessage = `WebRTC ${profile.id}`
+        state.previewMessage = colorMode === 'sdr_reference' ? referenceMessage : `WebRTC ${profile.id}`
         emit()
       }
     }
@@ -760,7 +784,7 @@ async function startWebrtcPreview(profile: PreviewProfile) {
     pc.oniceconnectionstatechange = () => {
       if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
         state.previewStatus = 'active'
-        state.previewMessage = `WebRTC connected`
+        state.previewMessage = colorMode === 'sdr_reference' ? referenceMessage : `WebRTC connected`
         emit()
       } else if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
         state.previewStatus = 'error'
@@ -802,11 +826,35 @@ async function startWebrtcPreview(profile: PreviewProfile) {
       sdp: pc.localDescription?.sdp ?? answer.sdp,
     })
 
+    if (colorMode === 'hdr10' && allowFallback && offerResult.sdp.includes('profile-level-id=6e')) {
+      const hasFrames = await waitForWebrtcVideoFrames(pc)
+      if (!hasFrames) {
+        pc.close()
+        if (webrtcPeerConnection === pc) {
+          webrtcPeerConnection = null
+        }
+        if (webrtcPreviewStream) {
+          for (const track of webrtcPreviewStream.getTracks()) {
+            track.stop()
+          }
+          webrtcPreviewStream = null
+        }
+        await api.rpc('preview.releaseProfile', { profile_id: profile.id }).catch(() => undefined)
+        state.previewStatus = 'connecting'
+        state.previewMessage = 'Browser did not negotiate HDR10/High10 WebRTC; falling back to SDR reference preview...'
+        emit()
+        return startWebrtcPreview(profile, 'sdr_reference', false)
+      }
+    }
+
     /* Don't overwrite status if ontrack / oniceconnectionstatechange
      * already set it to 'active' (can happen before the answer RPC
      * response arrives). */
     if (state.previewStatus === 'connecting') {
       state.previewMessage = 'WebRTC negotiating...'
+      if (colorMode === 'sdr_reference') {
+        state.previewMessage = referenceMessage
+      }
       emit()
     }
 

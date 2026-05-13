@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import Hls from 'hls.js'
-import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createApiKey, createInstance, createOutput, createScene, createSource, deleteApiKey, describeSourceKind, discoverV4L2, disableInstance, enableInstance, exportConfigBundle, getEncoderConfig, getPreviewEncoderConfig, getState, importConfigBundle, listApiKeys, listSourceKinds, loginApiKey, loginAuth, logoutAuth, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPasswordlessAuth, setPreviewScene, setSceneItemAudio, setupAuth, startPreviewSession, subscribe, transitionToPreview, updateAuthCredentials, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
+import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createApiKey, createInstance, createOutput, createScene, createSource, deleteApiKey, describeSourceKind, discoverALSA, discoverV4L2, disableInstance, enableInstance, exportConfigBundle, getEncoderConfig, getPreviewEncoderConfig, getState, importConfigBundle, listApiKeys, listSourceKinds, loginApiKey, loginAuth, logoutAuth, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPasswordlessAuth, setPreviewScene, setSceneItemAudio, setupAuth, startPreviewSession, subscribe, transitionToPreview, updateAuthCredentials, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
 
-import type { SourceKind, SourceKindField, V4L2Device, V4L2Format, V4L2FrameInterval, V4L2Resolution } from './types'
+import type { ALSADevice, SourceKind, SourceKindField, V4L2Device, V4L2Format, V4L2FrameInterval, V4L2Resolution } from './types'
 
 type DockRegion = 'left' | 'right' | 'bottom'
 type DockPanel = 'scenes' | 'sources' | 'controls' | 'mixer' | 'transitions'
@@ -132,6 +132,8 @@ export default function App() {
   const [sourceCreateConfig, setSourceCreateConfig] = useState<Record<string, string>>({})
   const [v4l2Devices, setV4l2Devices] = useState<V4L2Device[]>([])
   const [v4l2DiscoveryStatus, setV4l2DiscoveryStatus] = useState('')
+  const [alsaDevices, setAlsaDevices] = useState<ALSADevice[]>([])
+  const [alsaDiscoveryStatus, setAlsaDiscoveryStatus] = useState('')
   const [assetUploadStatus, setAssetUploadStatus] = useState<Record<string, { state: 'reading' | 'uploading' | 'done' | 'error'; message: string }>>({})
   const [previewController, setPreviewController] = useState<{ stop: () => Promise<void> } | null>(null)
   const [dockLayout, setDockLayout] = useState<DockLayout>(() => loadDockLayout())
@@ -1071,6 +1073,37 @@ export default function App() {
     }
   }
 
+  function alsaDeviceForConfig(config: Record<string, string>, devices = alsaDevices) {
+    const value = config.device || 'hw:0,2'
+    return devices.find((device) => device.device === value || device.hw_device === value) ?? null
+  }
+
+  function applyALSADefaults(config: Record<string, string>, devices = alsaDevices) {
+    const next = { ...config }
+    const device = alsaDeviceForConfig(next, devices) ?? devices[0] ?? null
+    if (device) {
+      next.device = device.device
+    } else if (!next.device) {
+      next.device = 'hw:0,2'
+    }
+    return next
+  }
+
+  async function loadALSADevices() {
+    try {
+      setAlsaDiscoveryStatus('Detecting ALSA capture devices...')
+      const result = await discoverALSA()
+      const devices = result.devices ?? []
+      setAlsaDevices(devices)
+      setAlsaDiscoveryStatus(devices.length > 0 ? `${devices.length} ALSA capture device${devices.length === 1 ? '' : 's'} detected` : 'No ALSA capture devices detected')
+      return devices
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setAlsaDiscoveryStatus(`ALSA discovery failed: ${message}`)
+      return []
+    }
+  }
+
   function rememberSourceKind(kind: SourceKind) {
     setSourceKinds((prev) => {
       const next = prev.filter((entry) => entry.id !== kind.id)
@@ -1093,9 +1126,14 @@ export default function App() {
     try {
       const kind = await loadSourceKind(kindId)
       const devices = kind.id === 'v4l2src' ? await loadV4L2Devices() : v4l2Devices
+      const audioDevices = kind.id === 'alsa_audio' ? await loadALSADevices() : alsaDevices
       setSourceCreateKind(kind.id)
       setSourceCreateName((name) => name || `${kind.name} ${sourceEntries.length + 1}`)
-      setSourceCreateConfig(kind.id === 'v4l2src' ? applyV4L2Defaults(sourceKindDefaults(kind), devices) : sourceKindDefaults(kind))
+      setSourceCreateConfig(kind.id === 'v4l2src'
+        ? applyV4L2Defaults(sourceKindDefaults(kind), devices)
+        : kind.id === 'alsa_audio'
+          ? applyALSADefaults(sourceKindDefaults(kind), audioDevices)
+          : sourceKindDefaults(kind))
       setAssetUploadStatus({})
       setSourceCreateOpen(false)
       setSourceConfigOpen(true)
@@ -1134,11 +1172,16 @@ export default function App() {
     try {
       const kind = await loadSourceKind(source.type)
       const devices = kind.id === 'v4l2src' ? await loadV4L2Devices() : v4l2Devices
+      const audioDevices = kind.id === 'alsa_audio' ? await loadALSADevices() : alsaDevices
       setEditingSourceId(source.id)
       setSourceEditName(source.name)
       setSourceEditEnabled(source.enabled !== false)
       const config = { ...sourceKindDefaults(kind), ...(source.config ?? {}) }
-      setSourceEditConfig(kind.id === 'v4l2src' ? applyV4L2Defaults(config, devices) : config)
+      setSourceEditConfig(kind.id === 'v4l2src'
+        ? applyV4L2Defaults(config, devices)
+        : kind.id === 'alsa_audio'
+          ? applyALSADefaults(config, audioDevices)
+          : config)
       setAssetUploadStatus({})
     } catch (error) {
       setStatus(String(error))
@@ -1794,6 +1837,48 @@ export default function App() {
             <option value="hardware" disabled={!format?.hardware_decode_available}>Hardware{format?.hardware_decode_available ? '' : ' unavailable'}</option>
             <option value="software" disabled={compressed && !format?.software_decode_available}>Software{compressed && !format?.software_decode_available ? ' unavailable' : ''}</option>
           </select>
+        </div>
+      </>
+    )
+  }
+
+  function renderALSAConfigControls(
+    config: Record<string, string>,
+    setConfig: Dispatch<SetStateAction<Record<string, string>>>,
+  ) {
+    const device = alsaDeviceForConfig(config)
+
+    return (
+      <>
+        <div className="source-create-row">
+          <label>Detected Device</label>
+          <select
+            value={device?.device ?? ''}
+            onChange={(event) => {
+              const selected = alsaDevices.find((entry) => entry.device === event.target.value)
+              setConfig((prev) => ({ ...prev, device: selected?.device ?? prev.device ?? 'hw:0,2' }))
+            }}
+          >
+            <option value="">Manual device</option>
+            {alsaDevices.map((entry) => (
+              <option key={entry.id} value={entry.device}>{entry.display_name || entry.device}</option>
+            ))}
+          </select>
+        </div>
+        <div className="source-create-row">
+          <label>Manual Device</label>
+          <input
+            value={config.device ?? 'hw:0,2'}
+            onChange={(event) => setConfig((prev) => ({ ...prev, device: event.target.value }))}
+            placeholder="hw:1,0 or plughw:C920,0"
+          />
+        </div>
+        <div className="source-create-row source-create-row-inline">
+          <label>Discovery</label>
+          <div className="source-field-stack">
+            <button type="button" onClick={() => loadALSADevices().then((devices) => setConfig((prev) => applyALSADefaults(prev, devices)))}>Refresh Devices</button>
+            <small className="source-field-hint">{alsaDiscoveryStatus || 'Use refresh to query target ALSA capture devices.'}</small>
+          </div>
         </div>
       </>
     )
@@ -2460,7 +2545,7 @@ export default function App() {
               <label>Name</label>
               <input value={sourceCreateName} onChange={(event) => setSourceCreateName(event.target.value)} />
             </div>
-            {kind.id === 'v4l2src' ? renderV4L2ConfigControls(sourceCreateConfig, setSourceCreateConfig) : (kind.fields ?? []).map((field) => (
+            {kind.id === 'v4l2src' ? renderV4L2ConfigControls(sourceCreateConfig, setSourceCreateConfig) : kind.id === 'alsa_audio' ? renderALSAConfigControls(sourceCreateConfig, setSourceCreateConfig) : (kind.fields ?? []).map((field) => (
               <div key={field.key} className="source-create-row">
                 <label>{field.label}</label>
                 {renderSourceFieldInput(field, sourceCreateConfig, setSourceCreateConfig)}
@@ -2958,6 +3043,7 @@ export default function App() {
                       const kind = sourceKinds.find((k) => k.id === kindId)
                       if (!kind) return null
                       if (kind.id === 'v4l2src') return renderV4L2ConfigControls(sourceEditConfig, setSourceEditConfig)
+                      if (kind.id === 'alsa_audio') return renderALSAConfigControls(sourceEditConfig, setSourceEditConfig)
                       if ((kind.fields ?? []).length === 0) return null
                       return (kind.fields ?? []).map((field) => (
                         <div key={field.key} className="source-create-row">

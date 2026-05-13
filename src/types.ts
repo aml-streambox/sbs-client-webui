@@ -41,6 +41,8 @@ export interface PreviewProfile {
   available: boolean
   requestable: boolean
   active: boolean
+  color_mode?: string
+  reference_color?: boolean
   viewer_count: number
   stream_url: string
 }
@@ -102,6 +104,17 @@ export interface V4L2Device {
   readwrite: boolean
   type_hints: string[]
   formats: V4L2Format[]
+}
+
+export interface ALSADevice {
+  id: string
+  card: number
+  device_index: number
+  card_id: string
+  name: string
+  display_name: string
+  device: string
+  hw_device: string
 }
 
 export interface InstanceSummary {
