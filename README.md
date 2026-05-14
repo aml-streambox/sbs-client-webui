@@ -9,3 +9,13 @@ Goals:
 - translate UI actions into canonical SBS commands
 
 This project is intended to become its own git repository.
+
+## Deploy
+
+The WebUI is served independently from `sbs-server`. Set `TARGET` in an untracked `.env` file or the environment, then run:
+
+```sh
+bash scripts/deploy.sh
+```
+
+By default the script deploys the built static assets to `/var/www/sbs-webui`. Override this with `REMOTE_WEBUI_DIR` when the target web server uses a different document root.
