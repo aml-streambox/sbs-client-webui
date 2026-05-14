@@ -25,6 +25,12 @@ const DEFAULT_DOCK_LAYOUT: DockLayout = {
 
 const PREVIEW_ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
 const EQ_BAND_LABELS = ['31 Hz', '62 Hz', '125 Hz', '250 Hz', '500 Hz', '1 kHz', '2 kHz', '4 kHz', '8 kHz', '16 kHz']
+const FILE_OUTPUT_TYPES = ['ts', 'mkv', 'flv', 'mp4']
+
+function inferFileOutputType(path?: string): string {
+  const ext = path?.split('.').pop()?.toLowerCase()
+  return ext && FILE_OUTPUT_TYPES.includes(ext) ? ext : 'ts'
+}
 
 function workspaceModeForViewport(width: number, height: number, coarsePointer = false): WorkspaceMode {
   if (width < 700 || (coarsePointer && height <= 600)) return 'phone'
@@ -2041,6 +2047,9 @@ export default function App() {
       rtmp_uri: enc.rtmp_uri || 'rtmp://127.0.0.1:1935/live/stream',
       rtmp_passcode: enc.rtmp_passcode || '',
       file_path: enc.file_path || '/tmp/stream.ts',
+      file_path_mode: enc.file_path_mode || 'file',
+      file_prefix: enc.file_prefix || 'stream',
+      file_container: enc.file_container || inferFileOutputType(enc.file_path),
     })
     setSettingsTab('output')
     setSettingsOpen(true)
@@ -2099,6 +2108,9 @@ export default function App() {
         patch.rtmp_passcode = editOutputTransport.rtmp_passcode
       } else if (sinkType === 'file') {
         patch.file_path = editOutputTransport.file_path
+        patch.file_path_mode = editOutputTransport.file_path_mode || 'file'
+        patch.file_prefix = editOutputTransport.file_prefix || 'stream'
+        patch.file_container = editOutputTransport.file_container || inferFileOutputType(editOutputTransport.file_path)
       }
       await updateOutput(editingOutputId, { encoder: patch }).then(() => setStatus('Output transport updated')).catch((e) => setStatus(String(e)))
     } else if (settingsTab === 'auth') {
@@ -2408,16 +2420,43 @@ export default function App() {
                   <input value={editOutputTransport.rtmp_uri || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, rtmp_uri: e.target.value }))} />
                 </div>
                 <div className="settings-row">
-                  <label>Passcode</label>
+                  <label>Stream Key</label>
                   <input type="password" value={editOutputTransport.rtmp_passcode || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, rtmp_passcode: e.target.value }))} />
                 </div>
               </>
             )}
             {sinkType === 'file' && (
-              <div className="settings-row">
-                <label>File Path</label>
-                <input value={editOutputTransport.file_path || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, file_path: e.target.value }))} />
-              </div>
+              <>
+                <div className="settings-row">
+                  <label>File Type</label>
+                  <select value={editOutputTransport.file_container || 'ts'} onChange={(e) => setEditOutputTransport((s) => ({ ...s, file_container: e.target.value }))}>
+                    <option value="ts">MPEG-TS (.ts)</option>
+                    <option value="mkv">Matroska (.mkv)</option>
+                    <option value="flv">Flash Video (.flv)</option>
+                    <option value="mp4">MP4 (.mp4)</option>
+                  </select>
+                </div>
+                <div className="settings-row">
+                  <label>Path Type</label>
+                  <select value={editOutputTransport.file_path_mode || 'file'} onChange={(e) => setEditOutputTransport((s) => ({ ...s, file_path_mode: e.target.value }))}>
+                    <option value="file">File</option>
+                    <option value="directory">Directory</option>
+                  </select>
+                </div>
+                <div className="settings-row">
+                  <label>{(editOutputTransport.file_path_mode || 'file') === 'directory' ? 'Directory' : 'File Path'}</label>
+                  <input value={editOutputTransport.file_path || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, file_path: e.target.value }))} />
+                </div>
+                {(editOutputTransport.file_path_mode || 'file') === 'directory' && (
+                  <div className="settings-row">
+                    <label>Filename Prefix</label>
+                    <input value={editOutputTransport.file_prefix || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, file_prefix: e.target.value }))} />
+                  </div>
+                )}
+                {(editOutputTransport.file_path_mode || 'file') === 'directory' && (
+                  <div className="settings-hint">Files are written as prefix-date.suffix, for example {(editOutputTransport.file_prefix || 'stream')}-YYYYMMDD-HHMMSS.{editOutputTransport.file_container || 'ts'}.</div>
+                )}
+              </>
             )}
           </>
         ) : (
