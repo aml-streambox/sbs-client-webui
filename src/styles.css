@@ -108,7 +108,6 @@ select {
   white-space: nowrap;
 }
 .obs-top-actions { display: flex; gap: 4px; align-items: center; min-width: 0; flex-shrink: 0; }
-
 .obs-stat {
   padding: 3px 8px;
   border: 1px solid var(--border);

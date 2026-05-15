@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import Hls from 'hls.js'
 import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createApiKey, createInstance, createOutput, createScene, createSource, deleteApiKey, describeSourceKind, discoverALSA, discoverV4L2, disableInstance, enableInstance, exportConfigBundle, getEncoderConfig, getPreviewEncoderConfig, getState, importConfigBundle, listApiKeys, listSourceKinds, loginApiKey, loginAuth, logoutAuth, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPasswordlessAuth, setPreviewScene, setSceneItemAudio, setupAuth, startPreviewSession, subscribe, transitionToPreview, updateAuthCredentials, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
+import { LANGUAGE_OPTIONS, loadLanguage, saveLanguage, translate, type Language, type TranslationValues } from './i18n'
 
 import type { ALSADevice, SourceKind, SourceKindField, V4L2Device, V4L2Format, V4L2FrameInterval, V4L2Resolution } from './types'
 
@@ -120,6 +121,8 @@ function useAppState() {
 
 export default function App() {
   const state = useAppState()
+  const [language, setLanguage] = useState<Language>(() => loadLanguage())
+  const t = (key: string, values?: TranslationValues) => translate(language, key, values)
   const [command, setCommand] = useState('scene set-active scene-main')
   const [status, setStatus] = useState('Ready')
   const [authUsername, setAuthUsername] = useState('admin')
@@ -161,7 +164,7 @@ export default function App() {
   const [filterAmountDrafts, setFilterAmountDrafts] = useState<Record<string, string>>({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<'canvas' | 'encoder' | 'preview' | 'output' | 'auth' | 'config'>('canvas')
+  const [settingsTab, setSettingsTab] = useState<'interface' | 'canvas' | 'encoder' | 'preview' | 'output' | 'auth' | 'config'>('canvas')
   const [settingsCanvas, setSettingsCanvas] = useState({ width: 1920, height: 1080, fps_num: 60, fps_den: 1, color_mode: 'sdr', background_color: '#000000' })
   const [editingOutputId, setEditingOutputId] = useState<string | null>(null)
   const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: '20000', keyframe_interval: '60', gop_preset: 'low_delay', enable_b_frames: false, rc_mode: '0' })
@@ -206,6 +209,11 @@ export default function App() {
   const MIN_SIZE = 32
   const SNAP_THRESHOLD = 20
 
+  useEffect(() => {
+    saveLanguage(language)
+    document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en'
+  }, [language])
+
   const canvasW = state.canvas?.width || DEFAULT_CANVAS_W
   const canvasH = state.canvas?.height || DEFAULT_CANVAS_H
   const targetFps = Math.round((state.canvas?.fps_num || 60) / Math.max(state.canvas?.fps_den || 1, 1))
@@ -214,12 +222,12 @@ export default function App() {
     : state.telemetry.compositorFps
   const displayFps = Math.max(0, Math.round(liveFps || 0))
   const fpsWarn = state.telemetry.pipelineSlow || (targetFps > 0 && displayFps + 1 < targetFps)
-  const fpsTitle = `Content ${state.telemetry.contentFps.toFixed(1)} fps, compositor ${state.telemetry.compositorFps.toFixed(1)} fps`
+  const fpsTitle = t('Content {content} fps, compositor {compositor} fps', { content: state.telemetry.contentFps.toFixed(1), compositor: state.telemetry.compositorFps.toFixed(1) })
   const headerStatus = !state.connected
-    ? state.connectionMessage
+    ? t(state.connectionMessage)
     : state.previewStatus !== 'idle'
-      ? state.previewMessage
-      : status
+      ? t(state.previewMessage)
+      : t(status)
   const previewFitSize = (() => {
     const width = Math.max(0, previewViewport.width)
     const height = Math.max(0, previewViewport.height)
@@ -397,14 +405,14 @@ export default function App() {
 
   useEffect(() => {
     connectStore()
-      .then(() => setStatus('Connected to SBS'))
-      .catch((error) => setStatus(`Connection failed: ${String(error)}`))
+      .then(() => setStatus(t('Connected to SBS')))
+      .catch((error) => setStatus(t('Connection failed: {message}', { message: String(error) })))
   }, [])
 
   async function submitAuth(event: FormEvent) {
     event.preventDefault()
     setAuthBusy(true)
-    setStatus('Authenticating...')
+    setStatus(t('Authenticating...'))
     try {
       if (state.auth.setup_required) {
         await setupAuth(authUsername.trim(), authPassword)
@@ -415,33 +423,33 @@ export default function App() {
       }
       setAuthPassword('')
       setAuthApiKey('')
-      setStatus('Authenticated')
+      setStatus(t('Authenticated'))
     } catch (error) {
-      setStatus(`Authentication failed: ${error instanceof Error ? error.message : String(error)}`)
+      setStatus(t('Authentication failed: {message}', { message: error instanceof Error ? error.message : String(error) }))
     } finally {
       setAuthBusy(false)
     }
   }
 
   async function handleCreateApiKey() {
-    setStatus('Creating API key...')
+    setStatus(t('Creating API key...'))
     try {
       const key = await createApiKey(newApiKeyName.trim() || 'WebUI API Key')
       setNewApiKey(key.api_key)
       setNewApiKeyName('')
-      setStatus('API key created')
+      setStatus(t('API key created'))
     } catch (error) {
-      setStatus(`API key creation failed: ${error instanceof Error ? error.message : String(error)}`)
+      setStatus(t('API key creation failed: {message}', { message: error instanceof Error ? error.message : String(error) }))
     }
   }
 
   async function handleDeleteApiKey(id: string) {
-    setStatus('Deleting API key...')
+    setStatus(t('Deleting API key...'))
     try {
       await deleteApiKey(id)
-      setStatus('API key deleted')
+      setStatus(t('API key deleted'))
     } catch (error) {
-      setStatus(`API key deletion failed: ${error instanceof Error ? error.message : String(error)}`)
+      setStatus(t('API key deletion failed: {message}', { message: error instanceof Error ? error.message : String(error) }))
     }
   }
 
@@ -452,7 +460,7 @@ export default function App() {
   function parseConfig(text: string) {
     const parsed = JSON.parse(text)
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error('Config import must be an object')
+      throw new Error(t('Config import must be an object'))
     }
     return parsed as Record<string, unknown>
   }
@@ -470,25 +478,25 @@ export default function App() {
   }
 
   async function handleExportConfig() {
-    setStatus('Exporting JSON config...')
+    setStatus(t('Exporting JSON config...'))
     try {
       const bundle = await exportConfigBundle()
       downloadConfigFile(serializeConfig(bundle))
-      setStatus('Config exported as JSON')
+      setStatus(t('Config exported as JSON'))
     } catch (error) {
-      setStatus(`Config export failed: ${error instanceof Error ? error.message : String(error)}`)
+      setStatus(t('Config export failed: {message}', { message: error instanceof Error ? error.message : String(error) }))
     }
   }
 
   async function handleImportConfig() {
-    setStatus('Importing JSON config...')
+    setStatus(t('Importing JSON config...'))
     try {
       const bundle = parseConfig(configImportText)
       await importConfigBundle(bundle)
       setConfigImportText('')
-      setStatus('Config imported and applied')
+      setStatus(t('Config imported and applied'))
     } catch (error) {
-      setStatus(`Config import failed: ${error instanceof Error ? error.message : String(error)}`)
+      setStatus(t('Config import failed: {message}', { message: error instanceof Error ? error.message : String(error) }))
     }
   }
 
@@ -797,12 +805,12 @@ export default function App() {
     }))
 
     return (
-      <div className="audio-eq-curve-card" aria-label="Equalizer frequency response curve">
+      <div className="audio-eq-curve-card" aria-label={t('Equalizer frequency response curve')}>
         <div className="audio-eq-curve-header">
-          <strong>Frequency Response</strong>
-          <small>Boosts rise above 0 dB, cuts dip below it.</small>
+          <strong>{t('Frequency Response')}</strong>
+          <small>{t('Boosts rise above 0 dB, cuts dip below it.')}</small>
         </div>
-        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Equalizer curve">
+        <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('Equalizer curve')}>
           <defs>
             <linearGradient id="eqCurveFill" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#536ff0" stopOpacity="0.16" />
@@ -826,7 +834,7 @@ export default function App() {
         </svg>
         <div className="audio-eq-curve-labels">
           <span>{EQ_BAND_LABELS[0]}</span>
-          <span>Frequency (Hz)</span>
+          <span>{t('Frequency (Hz)')}</span>
           <span>{EQ_BAND_LABELS[EQ_BAND_LABELS.length - 1]}</span>
         </div>
       </div>
@@ -839,7 +847,7 @@ export default function App() {
     onBandChange: (index: number, value: number) => void,
   ) {
     return (
-      <div className="audio-eq-fader-bank" aria-label="Equalizer band controls">
+      <div className="audio-eq-fader-bank" aria-label={t('Equalizer band controls')}>
         {bands.map((band, index) => (
           <label key={index} className="audio-eq-fader-strip">
             <span className="audio-eq-fader-value">{band > 0 ? `+${band}` : band} dB</span>
@@ -851,7 +859,7 @@ export default function App() {
               step="1"
               value={band}
               disabled={disabled}
-              aria-label={`${EQ_BAND_LABELS[index]} gain`}
+              aria-label={`${EQ_BAND_LABELS[index]} ${t('gain')}`}
               onChange={(event) => onBandChange(index, Number(event.target.value))}
             />
             <input
@@ -862,7 +870,7 @@ export default function App() {
               step="1"
               value={band}
               disabled={disabled}
-              aria-label={`${EQ_BAND_LABELS[index]} gain dB`}
+              aria-label={`${EQ_BAND_LABELS[index]} ${t('gain dB')}`}
               onChange={(event) => onBandChange(index, Number(event.target.value))}
             />
             <span className="audio-eq-fader-label">{EQ_BAND_LABELS[index]}</span>
@@ -955,7 +963,7 @@ export default function App() {
     if (previewController) {
       await previewController.stop()
       setPreviewController(null)
-      setStatus('Preview stopped')
+      setStatus(t('Preview stopped'))
       return
     }
 
@@ -964,12 +972,12 @@ export default function App() {
   }
 
   async function handleCreateScene() {
-    const name = window.prompt('Scene name', `Scene ${sceneEntries.length + 1}`)?.trim()
+    const name = window.prompt(t('Scene name'), `${t('Scene')} ${sceneEntries.length + 1}`)?.trim()
     if (!name) {
       return
     }
     await createScene(name)
-    setStatus(`Created scene: ${name}`)
+    setStatus(t('Created scene: {name}', { name }))
   }
 
   async function handleOpenSourceCatalog() {
@@ -977,7 +985,7 @@ export default function App() {
       const result = await listSourceKinds()
       setSourceKinds(result.kinds)
       setSourceCreateKind(result.kinds[0]?.id ?? 'videotestsrc')
-      setSourceCreateName(`Source ${sourceEntries.length + 1}`)
+      setSourceCreateName(`${t('Source')} ${sourceEntries.length + 1}`)
       setSourceCreateConfig({})
       setAssetUploadStatus({})
       setSourceCreateOpen(true)
@@ -1066,15 +1074,15 @@ export default function App() {
 
   async function loadV4L2Devices() {
     try {
-      setV4l2DiscoveryStatus('Detecting V4L2 devices...')
+      setV4l2DiscoveryStatus(t('Detecting V4L2 devices...'))
       const result = await discoverV4L2()
       const devices = result.devices ?? []
       setV4l2Devices(devices)
-      setV4l2DiscoveryStatus(devices.length > 0 ? `${devices.length} V4L2 device${devices.length === 1 ? '' : 's'} detected` : 'No V4L2 capture devices detected')
+      setV4l2DiscoveryStatus(devices.length > 0 ? t(devices.length === 1 ? '{count} V4L2 device detected' : '{count} V4L2 devices detected', { count: devices.length }) : t('No V4L2 capture devices detected'))
       return devices
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setV4l2DiscoveryStatus(`V4L2 discovery failed: ${message}`)
+      setV4l2DiscoveryStatus(t('V4L2 discovery failed: {message}', { message }))
       return []
     }
   }
@@ -1097,15 +1105,15 @@ export default function App() {
 
   async function loadALSADevices() {
     try {
-      setAlsaDiscoveryStatus('Detecting ALSA capture devices...')
+      setAlsaDiscoveryStatus(t('Detecting ALSA capture devices...'))
       const result = await discoverALSA()
       const devices = result.devices ?? []
       setAlsaDevices(devices)
-      setAlsaDiscoveryStatus(devices.length > 0 ? `${devices.length} ALSA capture device${devices.length === 1 ? '' : 's'} detected` : 'No ALSA capture devices detected')
+      setAlsaDiscoveryStatus(devices.length > 0 ? t(devices.length === 1 ? '{count} ALSA capture device detected' : '{count} ALSA capture devices detected', { count: devices.length }) : t('No ALSA capture devices detected'))
       return devices
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setAlsaDiscoveryStatus(`ALSA discovery failed: ${message}`)
+      setAlsaDiscoveryStatus(t('ALSA discovery failed: {message}', { message }))
       return []
     }
   }
@@ -1167,7 +1175,7 @@ export default function App() {
     }
     try {
       await createSource(name, sourceCreateKind, Object.keys(config).length > 0 ? config : undefined)
-      setStatus(`Created source: ${name}`)
+      setStatus(t('Created source: {name}', { name }))
       setSourceConfigOpen(false)
     } catch (error) {
       setStatus(String(error))
@@ -1195,19 +1203,19 @@ export default function App() {
   }
 
   async function handleRenameSource(sourceId: string, currentName: string) {
-    const name = window.prompt('Source name', currentName)?.trim()
+    const name = window.prompt(t('Source name'), currentName)?.trim()
     if (!name) return
     await updateSource(sourceId, { name })
-    setStatus(`Renamed source: ${name}`)
+    setStatus(t('Renamed source: {name}', { name }))
   }
 
   async function handleCreateOutput() {
-    const name = window.prompt('Output name', `Output ${outputEntries.length + 1}`)?.trim()
+    const name = window.prompt(t('Output name'), `${t('Output')} ${outputEntries.length + 1}`)?.trim()
     if (!name) {
       return
     }
     await createOutput(name)
-    setStatus(`Created output: ${name}`)
+    setStatus(t('Created output: {name}', { name }))
   }
 
   function switchToInstance(id: number) {
@@ -1217,24 +1225,24 @@ export default function App() {
   }
 
   async function handleCreateInstance() {
-    const name = window.prompt('Instance name', `Instance ${state.instances.length}`)?.trim()
+    const name = window.prompt(t('Instance name'), `${t('Instance')} ${state.instances.length}`)?.trim()
     if (!name) {
       return
     }
     const created = await createInstance(name)
-    setStatus(`Created instance: ${created.name}`)
+    setStatus(t('Created instance: {name}', { name: created.name }))
   }
 
   async function handleRenameInstance() {
     if (!currentInstance) {
       return
     }
-    const name = window.prompt('Instance name', currentInstance.name)?.trim()
+    const name = window.prompt(t('Instance name'), currentInstance.name)?.trim()
     if (!name) {
       return
     }
     const updated = await updateInstance(currentInstance.instance_id, { name })
-    setStatus(`Renamed instance: ${updated.name}`)
+    setStatus(t('Renamed instance: {name}', { name: updated.name }))
   }
 
   async function handleToggleInstanceEnabled() {
@@ -1244,15 +1252,15 @@ export default function App() {
     const updated = currentInstance.desired_running
       ? await disableInstance(currentInstance.instance_id)
       : await enableInstance(currentInstance.instance_id)
-    setStatus(`${updated.name} ${updated.desired_running ? 'enabled' : 'disabled'}`)
+    setStatus(t(updated.desired_running ? '{name} enabled' : '{name} disabled', { name: updated.name }))
   }
 
   async function handleDeleteInstance() {
     if (!currentInstance || currentInstance.instance_id === 0) {
-      setStatus('Default instance cannot be deleted')
+      setStatus(t('Default instance cannot be deleted'))
       return
     }
-    if (!window.confirm(`Delete instance ${currentInstance.name}?`)) {
+    if (!window.confirm(t('Delete instance {name}?', { name: currentInstance.name }))) {
       return
     }
     await removeInstance(currentInstance.instance_id)
@@ -1264,17 +1272,17 @@ export default function App() {
 
   async function handleRestartInstance() {
     if (!currentInstance) return
-    if (!window.confirm(`Restart instance ${currentInstance.name}? This will briefly disconnect all clients.`)) {
+    if (!window.confirm(t('Restart instance {name}? This will briefly disconnect all clients.', { name: currentInstance.name }))) {
       return
     }
-    setStatus('Restarting instance...')
+    setStatus(t('Restarting instance...'))
     try {
       await restartInstance(currentInstance.instance_id)
-      setStatus('Instance restarted — reconnecting...')
+      setStatus(t('Instance restarted, reconnecting...'))
       await new Promise((r) => setTimeout(r, 2000))
       window.location.reload()
     } catch (error) {
-      setStatus(`Restart failed: ${error instanceof Error ? error.message : String(error)}`)
+      setStatus(t('Restart failed: {message}', { message: error instanceof Error ? error.message : String(error) }))
     }
   }
 
@@ -1351,9 +1359,9 @@ export default function App() {
   }
 
   function hdrFilterHelp(key: string) {
-    if (key === 'saturation') return 'Color intensity after tone mapping; 100% is unchanged.'
-    if (key === 'brightness') return 'Output brightness offset; 0% is neutral.'
-    return 'Hue rotation in degrees; 0 deg is unchanged.'
+    if (key === 'saturation') return t('Color intensity after tone mapping; 100% is unchanged.')
+    if (key === 'brightness') return t('Output brightness offset; 0% is neutral.')
+    return t('Hue rotation in degrees; 0 deg is unchanged.')
   }
 
   function formatHdrFilterRange(key: string) {
@@ -1389,7 +1397,7 @@ export default function App() {
           />
           <span className="filter-unit">{unit}</span>
         </div>
-        <small className="filter-value">Current: {formatHdrFilterParam(filter, key)} - Range: {formatHdrFilterRange(key)}</small>
+        <small className="filter-value">{t('Current: {current} - Range: {range}', { current: formatHdrFilterParam(filter, key), range: formatHdrFilterRange(key) })}</small>
       </label>
     )
   }
@@ -1412,19 +1420,19 @@ export default function App() {
   }
 
   function filterAmountLabel(filter: any) {
-    if (filter.type === 'brightness') return 'Brightness Offset'
-    if (filter.type === 'contrast') return 'Contrast Multiplier'
-    if (filter.type === 'lut' || filter.type === 'hdr_to_sdr_lut') return 'LUT Strength'
-    if (filter.type === 'grayscale') return 'Grayscale Strength'
-    return 'Effect Strength'
+    if (filter.type === 'brightness') return t('Brightness Offset')
+    if (filter.type === 'contrast') return t('Contrast Multiplier')
+    if (filter.type === 'lut' || filter.type === 'hdr_to_sdr_lut') return t('LUT Strength')
+    if (filter.type === 'grayscale') return t('Grayscale Strength')
+    return t('Effect Strength')
   }
 
   function filterAmountHelp(filter: any) {
-    if (filter.type === 'brightness') return 'Adds or removes brightness; 0 is neutral.'
-    if (filter.type === 'contrast') return 'Multiplies contrast; 1.00x is neutral.'
-    if (filter.type === 'lut' || filter.type === 'hdr_to_sdr_lut') return 'Blends the LUT with the original image.'
-    if (filter.type === 'grayscale') return '0% keeps color, 100% is fully grayscale.'
-    return 'Blend amount for this effect.'
+    if (filter.type === 'brightness') return t('Adds or removes brightness; 0 is neutral.')
+    if (filter.type === 'contrast') return t('Multiplies contrast; 1.00x is neutral.')
+    if (filter.type === 'lut' || filter.type === 'hdr_to_sdr_lut') return t('Blends the LUT with the original image.')
+    if (filter.type === 'grayscale') return t('0% keeps color, 100% is fully grayscale.')
+    return t('Blend amount for this effect.')
   }
 
   function formatFilterAmountRange(filter: any) {
@@ -1436,19 +1444,19 @@ export default function App() {
 
   function filterDisplayName(type: string) {
     if (type === 'hdr_to_sdr_lut') {
-      return 'HDR→SDR LUT'
+      return t('HDR→SDR LUT')
     }
-    if (type === 'lut') return 'Apply LUT'
-    if (type === 'color_correction') return 'Color Correction'
-    if (type === 'luma_key') return 'Luma Key'
-    if (type === 'chroma_key') return 'Chroma Key'
-    if (type === 'grayscale') return 'Grayscale'
-    if (type === 'brightness') return 'Brightness'
-    if (type === 'contrast') return 'Contrast'
-    if (type === 'crop') return 'Crop'
-    if (type === 'mirror') return 'Mirror'
-    if (type === 'flip') return 'Flip'
-    if (type === 'rotation') return 'Rotation'
+    if (type === 'lut') return t('Apply LUT')
+    if (type === 'color_correction') return t('Color Correction')
+    if (type === 'luma_key') return t('Luma Key')
+    if (type === 'chroma_key') return t('Chroma Key')
+    if (type === 'grayscale') return t('Grayscale')
+    if (type === 'brightness') return t('Brightness')
+    if (type === 'contrast') return t('Contrast')
+    if (type === 'crop') return t('Crop')
+    if (type === 'mirror') return t('Mirror')
+    if (type === 'flip') return t('Flip')
+    if (type === 'rotation') return t('Rotation')
     return type
   }
 
@@ -1474,19 +1482,19 @@ export default function App() {
   }
 
   function filterParamHelp(filter: any, key: string) {
-    if (key === 'saturation') return 'Color intensity; 100% is unchanged.'
-    if (key === 'brightness') return 'Brightness offset; 0% is neutral.'
-    if (key === 'contrast') return 'Contrast multiplier; 1.00x is unchanged.'
-    if (key === 'gamma') return 'Midtone curve; 1.00x is unchanged.'
-    if (key === 'hue') return 'Hue rotation; 0 deg is unchanged.'
-    if (key === 'degrees') return 'Rotates the source around its center.'
-    if (key === 'top' || key === 'right' || key === 'bottom' || key === 'left') return 'Crops this edge before scaling the source.'
-    if (filter.type === 'luma_key' && key === 'min') return 'Pixels darker than this become transparent.'
-    if (filter.type === 'luma_key' && key === 'max') return 'Pixels brighter than this remain opaque.'
-    if (key === 'similarity') return 'How close a color must be to the key color.'
-    if (key === 'smoothness') return 'Softens the cutout edge to reduce harsh borders.'
-    if (key === 'spill') return 'Suppresses leftover key color on edges.'
-    return 'Adjusts this filter parameter.'
+    if (key === 'saturation') return t('Color intensity; 100% is unchanged.')
+    if (key === 'brightness') return t('Brightness offset; 0% is neutral.')
+    if (key === 'contrast') return t('Contrast multiplier; 1.00x is unchanged.')
+    if (key === 'gamma') return t('Midtone curve; 1.00x is unchanged.')
+    if (key === 'hue') return t('Hue rotation; 0 deg is unchanged.')
+    if (key === 'degrees') return t('Rotates the source around its center.')
+    if (key === 'top' || key === 'right' || key === 'bottom' || key === 'left') return t('Crops this edge before scaling the source.')
+    if (filter.type === 'luma_key' && key === 'min') return t('Pixels darker than this become transparent.')
+    if (filter.type === 'luma_key' && key === 'max') return t('Pixels brighter than this remain opaque.')
+    if (key === 'similarity') return t('How close a color must be to the key color.')
+    if (key === 'smoothness') return t('Softens the cutout edge to reduce harsh borders.')
+    if (key === 'spill') return t('Suppresses leftover key color on edges.')
+    return t('Adjusts this filter parameter.')
   }
 
   function formatFilterParamValue(key: string, value: number) {
@@ -1532,7 +1540,7 @@ export default function App() {
     } else {
       await updateFilter(effectiveFilterTarget.id, filter.id, filter.enabled, params)
     }
-    setStatus(`Adjusted ${filterDisplayName(filter.type)}`)
+    setStatus(t('Adjusted {filter}', { filter: filterDisplayName(filter.type) }))
   }
 
   async function handleCommitFilterColor(filter: any, color: string) {
@@ -1543,7 +1551,7 @@ export default function App() {
     } else {
       await updateFilter(effectiveFilterTarget.id, filter.id, filter.enabled, params)
     }
-    setStatus(`Adjusted ${filterDisplayName(filter.type)}`)
+    setStatus(t('Adjusted {filter}', { filter: filterDisplayName(filter.type) }))
   }
 
   function renderFilterParamSlider(filter: any, key: string, label: string) {
@@ -1573,7 +1581,7 @@ export default function App() {
           />
           <span className="filter-unit">{unit}</span>
         </div>
-        <small className="filter-value">Current: {formatFilterParamValue(key, value)} - Range: {formatFilterParamRange(key)}</small>
+        <small className="filter-value">{t('Current: {current} - Range: {range}', { current: formatFilterParamValue(key, value), range: formatFilterParamRange(key) })}</small>
       </label>
     )
   }
@@ -1587,7 +1595,7 @@ export default function App() {
     } else {
       await addFilter(effectiveFilterTarget.id, type, id)
     }
-    setStatus(`Added ${filterDisplayName(type)} filter`)
+    setStatus(t('Added {filter} filter', { filter: filterDisplayName(type) }))
   }
 
   async function handleRemoveSelectedFilter() {
@@ -1597,7 +1605,7 @@ export default function App() {
     } else {
       await removeFilter(effectiveFilterTarget.id, selectedFilter.id)
     }
-    setStatus(`Removed ${filterDisplayName(selectedFilter.type)}`)
+    setStatus(t('Removed {filter}', { filter: filterDisplayName(selectedFilter.type) }))
   }
 
   async function handleToggleFilter(filter: any, enabled: boolean) {
@@ -1607,7 +1615,7 @@ export default function App() {
     } else {
       await updateFilter(effectiveFilterTarget.id, filter.id, enabled, filter.params ?? { amount: defaultFilterAmount(filter) })
     }
-    setStatus(`${enabled ? 'Enabled' : 'Disabled'} ${filterDisplayName(filter.type)}`)
+    setStatus(t(enabled ? 'Enabled {filter}' : 'Disabled {filter}', { filter: filterDisplayName(filter.type) }))
   }
 
   function openSourceFilters(sourceId: string) {
@@ -1634,7 +1642,7 @@ export default function App() {
     } else {
       await updateFilter(effectiveFilterTarget.id, filter.id, filter.enabled, { ...(filter.params ?? {}), amount: nextAmount })
     }
-    setStatus(`Adjusted ${filterDisplayName(filter.type)}`)
+    setStatus(t('Adjusted {filter}', { filter: filterDisplayName(filter.type) }))
   }
 
   async function handleCommitHdrFilterParam(filter: any, key: string, value: number) {
@@ -1645,7 +1653,7 @@ export default function App() {
     } else {
       await updateFilter(effectiveFilterTarget.id, filter.id, filter.enabled, { ...(filter.params ?? {}), [key]: nextValue })
     }
-    setStatus(`Adjusted ${filterDisplayName(filter.type)}`)
+    setStatus(t('Adjusted {filter}', { filter: filterDisplayName(filter.type) }))
   }
 
   function handleFilterAmountDraft(filter: any, value: string) {
@@ -1695,29 +1703,29 @@ export default function App() {
     if (!field.asset_kind) return
     const statusKey = `${field.asset_kind}:${field.key}`
     if (file.size > 128 * 1024 * 1024) {
-      const message = 'File is larger than the 128 MB upload limit'
+      const message = t('File is larger than the 128 MB upload limit')
       setAssetUploadStatus((prev) => ({ ...prev, [statusKey]: { state: 'error', message } }))
       setStatus(message)
       return
     }
     try {
-      setAssetUploadStatus((prev) => ({ ...prev, [statusKey]: { state: 'reading', message: `Reading ${file.name}...` } }))
-      setStatus(`Reading ${file.name}...`)
+      setAssetUploadStatus((prev) => ({ ...prev, [statusKey]: { state: 'reading', message: t('Reading {name}...', { name: file.name }) } }))
+      setStatus(t('Reading {name}...', { name: file.name }))
       const dataBase64 = await fileAsBase64(file)
-      setAssetUploadStatus((prev) => ({ ...prev, [statusKey]: { state: 'uploading', message: `Uploading ${file.name}...` } }))
-      setStatus(`Uploading ${file.name}...`)
+      setAssetUploadStatus((prev) => ({ ...prev, [statusKey]: { state: 'uploading', message: t('Uploading {name}...', { name: file.name }) } }))
+      setStatus(t('Uploading {name}...', { name: file.name }))
       const uploaded = await uploadSourceAsset(field.asset_kind, file.name, dataBase64)
       const value = field.key === 'uri' ? uploaded.uri : uploaded.path
       setConfig((prev) => ({ ...prev, [field.key]: value }))
       setAssetUploadStatus((prev) => ({
         ...prev,
-        [statusKey]: { state: 'done', message: `Uploaded ${uploaded.filename} (${Math.max(1, Math.round(uploaded.size / 1024))} KB)` },
+        [statusKey]: { state: 'done', message: t('Uploaded {name} ({size} KB)', { name: uploaded.filename, size: Math.max(1, Math.round(uploaded.size / 1024)) }) },
       }))
-      setStatus(`Uploaded ${uploaded.filename}`)
+      setStatus(t('Uploaded {name}', { name: uploaded.filename }))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      setAssetUploadStatus((prev) => ({ ...prev, [statusKey]: { state: 'error', message: `Upload failed: ${message}` } }))
-      setStatus(`Upload failed: ${message}`)
+      setAssetUploadStatus((prev) => ({ ...prev, [statusKey]: { state: 'error', message: t('Upload failed: {message}', { message }) } }))
+      setStatus(t('Upload failed: {message}', { message }))
     }
   }
 
@@ -1737,7 +1745,7 @@ export default function App() {
     return (
       <>
         <div className="source-create-row">
-          <label>Detected Device</label>
+          <label>{t('Detected Device')}</label>
           <select
             value={device?.path ?? ''}
             onChange={(event) => {
@@ -1755,14 +1763,14 @@ export default function App() {
               }, selected ? [selected] : v4l2Devices))
             }}
           >
-            <option value="">Manual path</option>
+            <option value="">{t('Manual path')}</option>
             {v4l2Devices.map((entry) => (
               <option key={entry.id} value={entry.path}>{entry.display_name || entry.path} ({entry.path})</option>
             ))}
           </select>
         </div>
         <div className="source-create-row">
-          <label>Manual Path</label>
+          <label>{t('Manual Path')}</label>
           <input
             value={config.device_path ?? config.device ?? '/dev/video0'}
             onChange={(event) => setConfig((prev) => ({
@@ -1775,14 +1783,14 @@ export default function App() {
           />
         </div>
         <div className="source-create-row source-create-row-inline">
-          <label>Discovery</label>
+          <label>{t('Discovery')}</label>
           <div className="source-field-stack">
-            <button type="button" onClick={() => loadV4L2Devices().then((devices) => setConfig((prev) => applyV4L2Defaults(prev, devices)))}>Refresh Devices</button>
-            <small className="source-field-hint">{v4l2DiscoveryStatus || 'Use refresh to query target V4L2 devices.'}</small>
+            <button type="button" onClick={() => loadV4L2Devices().then((devices) => setConfig((prev) => applyV4L2Defaults(prev, devices)))}>{t('Refresh Devices')}</button>
+            <small className="source-field-hint">{v4l2DiscoveryStatus || t('Use refresh to query target V4L2 devices.')}</small>
           </div>
         </div>
         <div className="source-create-row">
-          <label>Format</label>
+          <label>{t('Format')}</label>
           <select
             value={format?.fourcc ?? ''}
             disabled={!device || (device.formats ?? []).length === 0}
@@ -1795,15 +1803,15 @@ export default function App() {
               framerate: '',
             }))}
           >
-            {!device && <option value="">Select a detected device</option>}
-            {device && (device.formats ?? []).length === 0 && <option value="">No formats reported</option>}
+            {!device && <option value="">{t('Select a detected device')}</option>}
+            {device && (device.formats ?? []).length === 0 && <option value="">{t('No formats reported')}</option>}
             {(device?.formats ?? []).map((entry) => (
               <option key={entry.fourcc} value={entry.fourcc}>{entry.fourcc} · {entry.description || entry.media_type}</option>
             ))}
           </select>
         </div>
         <div className="source-create-row">
-          <label>Resolution</label>
+          <label>{t('Resolution')}</label>
           <select
             value={selectedResolution ? v4l2ResolutionValue(selectedResolution) : ''}
             disabled={resolutions.length === 0}
@@ -1812,20 +1820,20 @@ export default function App() {
               setConfig((prev) => applyV4L2Defaults({ ...prev, width, height, framerate: '' }))
             }}
           >
-            {resolutions.length === 0 && <option value="">No discrete resolutions</option>}
+            {resolutions.length === 0 && <option value="">{t('No discrete resolutions')}</option>}
             {resolutions.map((entry) => (
               <option key={v4l2ResolutionValue(entry)} value={v4l2ResolutionValue(entry)}>{entry.width} x {entry.height}</option>
             ))}
           </select>
         </div>
         <div className="source-create-row">
-          <label>Frame Rate</label>
+          <label>{t('Frame Rate')}</label>
           <select
             value={config.framerate ?? (intervals[0] ? v4l2IntervalValue(intervals[0]) : '')}
             disabled={intervals.length === 0}
             onChange={(event) => setConfig((prev) => ({ ...prev, framerate: event.target.value }))}
           >
-            {intervals.length === 0 && <option value="">No frame rates reported</option>}
+            {intervals.length === 0 && <option value="">{t('No frame rates reported')}</option>}
             {intervals.map((entry, index) => {
               const value = v4l2IntervalValue(entry)
               return <option key={`${value}-${index}`} value={value}>{v4l2IntervalLabel(entry)}</option>
@@ -1833,15 +1841,15 @@ export default function App() {
           </select>
         </div>
         <div className="source-create-row">
-          <label>Decode Mode</label>
+          <label>{t('Decode Mode')}</label>
           <select
             value={config.decode_mode ?? 'auto'}
             disabled={!compressed}
             onChange={(event) => setConfig((prev) => ({ ...prev, decode_mode: event.target.value }))}
           >
-            <option value="auto">Auto{compressed ? ' (prefer hardware)' : ' (raw mode)'}</option>
-            <option value="hardware" disabled={!format?.hardware_decode_available}>Hardware{format?.hardware_decode_available ? '' : ' unavailable'}</option>
-            <option value="software" disabled={compressed && !format?.software_decode_available}>Software{compressed && !format?.software_decode_available ? ' unavailable' : ''}</option>
+            <option value="auto">{t('Auto')}{compressed ? ` (${t('prefer hardware')})` : ` (${t('raw mode')})`}</option>
+            <option value="hardware" disabled={!format?.hardware_decode_available}>{t('Hardware')}{format?.hardware_decode_available ? '' : ` ${t('unavailable')}`}</option>
+            <option value="software" disabled={compressed && !format?.software_decode_available}>{t('Software')}{compressed && !format?.software_decode_available ? ` ${t('unavailable')}` : ''}</option>
           </select>
         </div>
       </>
@@ -1857,7 +1865,7 @@ export default function App() {
     return (
       <>
         <div className="source-create-row">
-          <label>Detected Device</label>
+          <label>{t('Detected Device')}</label>
           <select
             value={device?.device ?? ''}
             onChange={(event) => {
@@ -1865,14 +1873,14 @@ export default function App() {
               setConfig((prev) => ({ ...prev, device: selected?.device ?? prev.device ?? 'hw:0,2' }))
             }}
           >
-            <option value="">Manual device</option>
+            <option value="">{t('Manual device')}</option>
             {alsaDevices.map((entry) => (
               <option key={entry.id} value={entry.device}>{entry.display_name || entry.device}</option>
             ))}
           </select>
         </div>
         <div className="source-create-row">
-          <label>Manual Device</label>
+          <label>{t('Manual Device')}</label>
           <input
             value={config.device ?? 'hw:0,2'}
             onChange={(event) => setConfig((prev) => ({ ...prev, device: event.target.value }))}
@@ -1880,10 +1888,10 @@ export default function App() {
           />
         </div>
         <div className="source-create-row source-create-row-inline">
-          <label>Discovery</label>
+          <label>{t('Discovery')}</label>
           <div className="source-field-stack">
-            <button type="button" onClick={() => loadALSADevices().then((devices) => setConfig((prev) => applyALSADefaults(prev, devices)))}>Refresh Devices</button>
-            <small className="source-field-hint">{alsaDiscoveryStatus || 'Use refresh to query target ALSA capture devices.'}</small>
+            <button type="button" onClick={() => loadALSADevices().then((devices) => setConfig((prev) => applyALSADefaults(prev, devices)))}>{t('Refresh Devices')}</button>
+            <small className="source-field-hint">{alsaDiscoveryStatus || t('Use refresh to query target ALSA capture devices.')}</small>
           </div>
         </div>
       </>
@@ -1945,7 +1953,7 @@ export default function App() {
         <div className="asset-field-control">
           {textInput}
           <label className="asset-upload-button">
-            Upload
+            {t('Upload')}
             <input
               type="file"
               accept={accept}
@@ -1960,7 +1968,7 @@ export default function App() {
           </label>
         </div>
         <div className={`asset-field-status ${uploadStatus?.state ?? ''}`} aria-live="polite">
-          {uploadStatus?.message ?? `Upload ${field.asset_kind} file, or paste a path/URI.`}
+          {uploadStatus?.message ?? t('Upload {kind} file, or paste a path/URI.', { kind: field.asset_kind })}
         </div>
       </div>
     )
@@ -2002,7 +2010,7 @@ export default function App() {
     setDockSizes(DEFAULT_DOCK_SIZES)
     saveDockLayout(DEFAULT_DOCK_LAYOUT)
     saveDockSizes(DEFAULT_DOCK_SIZES)
-    setStatus('Workspace layout reset')
+    setStatus(t('Workspace layout reset'))
   }
 
   async function openSettings() {
@@ -2060,7 +2068,7 @@ export default function App() {
   async function applySettings() {
     if (settingsTab === 'canvas') {
       await updateCanvas(canvasSettingsPatch()).then(() => applyCanvas()).then(() => {
-        setStatus('Saved canvas settings applied with full reinitialization')
+        setStatus(t('Saved canvas settings applied with full reinitialization'))
         setSettingsOpen(false)
       }).catch((e) => setStatus(String(e)))
       return
@@ -2072,12 +2080,12 @@ export default function App() {
         gop_preset: sharedEncoder.gop_preset,
         enable_b_frames: sharedEncoder.enable_b_frames,
         rc_mode: Number(sharedEncoder.rc_mode),
-      }).then(() => setStatus('Encoder config updated')).catch((e) => setStatus(String(e)))
+      }).then(() => setStatus(t('Encoder config updated'))).catch((e) => setStatus(String(e)))
     } else if (settingsTab === 'preview') {
       const wasActive = Boolean(previewController)
       try {
         if (previewController) {
-          setStatus('Stopping preview before applying encoder settings...')
+          setStatus(t('Stopping preview before applying encoder settings...'))
           await previewController.stop()
           setPreviewController(null)
         }
@@ -2089,9 +2097,9 @@ export default function App() {
         if (wasActive) {
           const controller = await startPreviewSession()
           setPreviewController(controller)
-          setStatus('Preview encoder config updated and preview restarted')
+          setStatus(t('Preview encoder config updated and preview restarted'))
         } else {
-          setStatus('Preview encoder config updated')
+          setStatus(t('Preview encoder config updated'))
         }
       } catch (e) {
         setStatus(String(e))
@@ -2112,20 +2120,20 @@ export default function App() {
         patch.file_prefix = editOutputTransport.file_prefix || 'stream'
         patch.file_container = editOutputTransport.file_container || inferFileOutputType(editOutputTransport.file_path)
       }
-      await updateOutput(editingOutputId, { encoder: patch }).then(() => setStatus('Output transport updated')).catch((e) => setStatus(String(e)))
+      await updateOutput(editingOutputId, { encoder: patch }).then(() => setStatus(t('Output transport updated'))).catch((e) => setStatus(String(e)))
     } else if (settingsTab === 'auth') {
       try {
         if (authSettings.passwordless) {
           await setPasswordlessAuth(true)
-          setStatus('Password authentication disabled')
+          setStatus(t('Password authentication disabled'))
         } else {
           if (!authSettings.username.trim() || !authSettings.password) {
-            setStatus('Username and new password are required')
+            setStatus(t('Username and new password are required'))
             return
           }
           await updateAuthCredentials(authSettings.username.trim(), authSettings.password)
           setAuthSettings((current) => ({ ...current, password: '' }))
-          setStatus('Authentication credentials updated')
+          setStatus(t('Authentication credentials updated'))
         }
       } catch (e) {
         setStatus(String(e))
@@ -2150,21 +2158,36 @@ export default function App() {
   }
 
   async function saveCanvasSettings() {
-    await updateCanvas(canvasSettingsPatch()).then(() => setStatus('Canvas settings saved. Waiting for apply.')).catch((e) => setStatus(String(e)))
+    await updateCanvas(canvasSettingsPatch()).then(() => setStatus(t('Canvas settings saved. Waiting for apply.'))).catch((e) => setStatus(String(e)))
   }
 
   function renderSettingsBody() {
     const sinkType = editOutputTransport.sink_type || 'srt'
+    if (settingsTab === 'interface') {
+      return (
+        <>
+          <div className="settings-section-title">{t('Interface')}</div>
+          <div className="settings-row">
+            <label>{t('Language')}</label>
+            <select value={language} onChange={(e) => setLanguage(e.target.value as Language)}>
+              {LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </div>
+        </>
+      )
+    }
     if (settingsTab === 'canvas') {
       return (
         <>
-          <div className="settings-warning">Canvas settings are saved first. Apply will fully reinitialize sources, compositor, and outputs.</div>
+          <div className="settings-warning">{t('Canvas settings are saved first. Apply will fully reinitialize sources, compositor, and outputs.')}</div>
           {state.canvasRestartRequired && state.pendingCanvas && (
-            <div className="settings-warning">Settings changed, waiting for apply.</div>
+            <div className="settings-warning">{t('Settings changed, waiting for apply.')}</div>
           )}
-          <div className="settings-section-title">Video</div>
+          <div className="settings-section-title">{t('Video')}</div>
           <div className="settings-row">
-            <label>Resolution</label>
+            <label>{t('Resolution')}</label>
             <div className="settings-inline">
               <input type="number" value={settingsCanvas.width} onChange={(e) => setSettingsCanvas((s) => ({ ...s, width: Number(e.target.value) }))} />
               <span>x</span>
@@ -2172,23 +2195,23 @@ export default function App() {
             </div>
           </div>
           <div className="settings-row">
-            <label>Framerate</label>
+            <label>{t('Framerate')}</label>
             <div className="settings-inline">
               <input type="number" value={settingsCanvas.fps_num} onChange={(e) => setSettingsCanvas((s) => ({ ...s, fps_num: Number(e.target.value) }))} />
               <span>/</span>
               <input type="number" value={settingsCanvas.fps_den} onChange={(e) => setSettingsCanvas((s) => ({ ...s, fps_den: Number(e.target.value) || 1 }))} style={{ width: 50 }} />
             </div>
           </div>
-          <div className="settings-section-title">Color</div>
+          <div className="settings-section-title">{t('Color')}</div>
           <div className="settings-row">
-            <label>Color Mode</label>
+            <label>{t('Color Mode')}</label>
             <select value={settingsCanvas.color_mode} onChange={(e) => setSettingsCanvas((s) => ({ ...s, color_mode: e.target.value }))}>
               <option value="sdr">SDR</option>
               <option value="hdr10">HDR10</option>
             </select>
           </div>
           <div className="settings-row">
-            <label>Background</label>
+            <label>{t('Background')}</label>
             <input type="color" value={settingsCanvas.background_color} onChange={(e) => setSettingsCanvas((s) => ({ ...s, background_color: e.target.value }))} />
           </div>
         </>
@@ -2197,38 +2220,38 @@ export default function App() {
     if (settingsTab === 'encoder') {
       return (
         <>
-          <div className="settings-warning">Shared encoder settings apply to all outputs. Changing will briefly restart the encoder pipeline.</div>
-          <div className="settings-section-title">Encoder</div>
+          <div className="settings-warning">{t('Shared encoder settings apply to all outputs. Changing will briefly restart the encoder pipeline.')}</div>
+          <div className="settings-section-title">{t('Encoder')}</div>
           <div className="settings-row">
-            <label>Codec</label>
+            <label>{t('Codec')}</label>
             <select value={sharedEncoder.codec} onChange={(e) => setSharedEncoder((s) => ({ ...s, codec: e.target.value }))}>
               <option value="h265">H.265 (HEVC)</option>
               <option value="h264">H.264 (AVC)</option>
             </select>
           </div>
           <div className="settings-row">
-            <label>Bitrate</label>
+            <label>{t('Bitrate')}</label>
             <div className="settings-inline">
               <input type="number" value={sharedEncoder.bitrate_kbps} onChange={(e) => setSharedEncoder((s) => ({ ...s, bitrate_kbps: e.target.value }))} />
               <span>kbps</span>
             </div>
           </div>
           <div className="settings-row">
-            <label>GOP Preset</label>
+            <label>{t('GOP Preset')}</label>
             <select value={sharedEncoder.gop_preset} onChange={(e) => setSharedEncoder((s) => ({ ...s, gop_preset: e.target.value, enable_b_frames: e.target.value === 'b_frames' }))}>
-              <option value="low_delay">Low delay (IP only)</option>
-              <option value="b_frames">B-frames enabled</option>
+              <option value="low_delay">{t('Low delay (IP only)')}</option>
+              <option value="b_frames">{t('B-frames enabled')}</option>
             </select>
           </div>
           <div className="settings-row">
-            <label>Keyframe Interval</label>
+            <label>{t('Keyframe Interval')}</label>
             <div className="settings-inline">
               <input type="number" value={sharedEncoder.keyframe_interval} onChange={(e) => setSharedEncoder((s) => ({ ...s, keyframe_interval: e.target.value }))} />
               <span>frames</span>
             </div>
           </div>
           <div className="settings-row">
-            <label>Rate Control</label>
+            <label>{t('Rate Control')}</label>
             <select value={sharedEncoder.rc_mode} onChange={(e) => setSharedEncoder((s) => ({ ...s, rc_mode: e.target.value }))}>
               <option value="0">VBR</option>
               <option value="1">CBR</option>
@@ -2243,29 +2266,29 @@ export default function App() {
       const previewHeight = Math.floor(((state.canvas?.height ?? 0)) / previewScale)
       return (
         <>
-          <div className="settings-warning">Preview encoder settings for WebRTC preview. If preview is active, Apply restarts it automatically.</div>
-          <div className="settings-section-title">Preview Encoder</div>
+          <div className="settings-warning">{t('Preview encoder settings for WebRTC preview. If preview is active, Apply restarts it automatically.')}</div>
+          <div className="settings-section-title">{t('Preview Encoder')}</div>
           <div className="settings-row">
-            <label>Resolution Scale</label>
+            <label>{t('Resolution Scale')}</label>
             <div className="settings-inline">
               <select value={previewEncoder.downscale_factor} onChange={(e) => setPreviewEncoder((s) => ({ ...s, downscale_factor: e.target.value }))}>
-                <option value="1">1x original</option>
-                <option value="2">2x downscale</option>
-                <option value="4">4x downscale</option>
-                <option value="8">8x downscale</option>
+                <option value="1">{t('1x original')}</option>
+                <option value="2">{t('2x downscale')}</option>
+                <option value="4">{t('4x downscale')}</option>
+                <option value="8">{t('8x downscale')}</option>
               </select>
               <span>{previewWidth}x{previewHeight}</span>
             </div>
           </div>
           <div className="settings-row">
-            <label>Framerate</label>
+            <label>{t('Framerate')}</label>
             <div className="settings-inline">
               <input type="number" value={previewEncoder.framerate} onChange={(e) => setPreviewEncoder((s) => ({ ...s, framerate: e.target.value }))} />
               <span>fps</span>
             </div>
           </div>
           <div className="settings-row">
-            <label>Bitrate</label>
+            <label>{t('Bitrate')}</label>
             <div className="settings-inline">
               <input type="number" value={previewEncoder.bitrate_kbps} onChange={(e) => setPreviewEncoder((s) => ({ ...s, bitrate_kbps: e.target.value }))} />
               <span>kbps</span>
@@ -2277,62 +2300,62 @@ export default function App() {
     if (settingsTab === 'auth') {
       return (
         <>
-          <div className="settings-warning">Passwordless mode disables WebUI/API login checks. Use it only on trusted local networks.</div>
-          <div className="settings-section-title">Authentication</div>
+          <div className="settings-warning">{t('Passwordless mode disables WebUI/API login checks. Use it only on trusted local networks.')}</div>
+          <div className="settings-section-title">{t('Authentication')}</div>
           <div className="settings-row">
-            <label>Passwordless Mode</label>
+            <label>{t('Passwordless Mode')}</label>
             <label className="settings-check">
               <input
                 type="checkbox"
                 checked={authSettings.passwordless}
                 onChange={(e) => setAuthSettings((s) => ({ ...s, passwordless: e.target.checked }))}
               />
-              Disable username/password login
+              {t('Disable username/password login')}
             </label>
           </div>
           {!authSettings.passwordless && (
             <>
               <div className="settings-row">
-                <label>Username</label>
+                <label>{t('Username')}</label>
                 <input value={authSettings.username} onChange={(e) => setAuthSettings((s) => ({ ...s, username: e.target.value }))} />
               </div>
               <div className="settings-row">
-                <label>New Password</label>
+                <label>{t('New Password')}</label>
                 <input type="password" value={authSettings.password} onChange={(e) => setAuthSettings((s) => ({ ...s, password: e.target.value }))} />
               </div>
-              <div className="settings-empty">Applying replaces the current username/password and signs this browser in with the new credentials.</div>
+              <div className="settings-empty">{t('Applying replaces the current username/password and signs this browser in with the new credentials.')}</div>
             </>
           )}
-          <div className="settings-section-title">API Keys</div>
+          <div className="settings-section-title">{t('API Keys')}</div>
           <div className="settings-row">
-            <label>Create Key</label>
+            <label>{t('Create Key')}</label>
             <div className="settings-inline auth-api-create">
               <input
                 value={newApiKeyName}
                 onChange={(e) => setNewApiKeyName(e.target.value)}
-                placeholder="Key name"
+                placeholder={t('Key name')}
               />
-              <button type="button" onClick={() => handleCreateApiKey()}>Create</button>
-              <button type="button" onClick={() => listApiKeys().catch((e) => setStatus(String(e)))}>Refresh</button>
+              <button type="button" onClick={() => handleCreateApiKey()}>{t('Create')}</button>
+              <button type="button" onClick={() => listApiKeys().catch((e) => setStatus(String(e)))}>{t('Refresh')}</button>
             </div>
           </div>
           {newApiKey && (
             <div className="settings-api-key-created">
-              <span>Copy this key now. It will not be shown again.</span>
+              <span>{t('Copy this key now. It will not be shown again.')}</span>
               <code>{newApiKey}</code>
-              <button type="button" onClick={() => setNewApiKey('')}>Dismiss</button>
+              <button type="button" onClick={() => setNewApiKey('')}>{t('Dismiss')}</button>
             </div>
           )}
           <div className="auth-key-list">
             {(state.auth.api_keys ?? []).length === 0 ? (
-              <div className="settings-empty">No API keys have been created.</div>
+              <div className="settings-empty">{t('No API keys have been created.')}</div>
             ) : (state.auth.api_keys ?? []).map((key) => (
               <div className="auth-key-row" key={key.id}>
                 <div>
                   <strong>{key.name}</strong>
                   <span>{key.created_at || key.id}</span>
                 </div>
-                <button type="button" onClick={() => handleDeleteApiKey(key.id)}>Delete</button>
+                <button type="button" onClick={() => handleDeleteApiKey(key.id)}>{t('Delete')}</button>
               </div>
             ))}
           </div>
@@ -2342,28 +2365,28 @@ export default function App() {
     if (settingsTab === 'config') {
       return (
         <>
-          <div className="settings-warning">Import replaces the active SBS scenes, sources, outputs, canvas, and audio settings, then restarts affected runtime pipelines.</div>
-          <div className="settings-section-title">Export Configuration</div>
+          <div className="settings-warning">{t('Import replaces the active SBS scenes, sources, outputs, canvas, and audio settings, then restarts affected runtime pipelines.')}</div>
+          <div className="settings-section-title">{t('Export Configuration')}</div>
           <div className="settings-row">
-            <label>Download</label>
+            <label>{t('Download')}</label>
             <div className="settings-inline">
-              <button type="button" onClick={() => handleExportConfig()}>Export JSON</button>
+              <button type="button" onClick={() => handleExportConfig()}>{t('Export JSON')}</button>
             </div>
           </div>
-          <div className="settings-section-title">Import Configuration</div>
+          <div className="settings-section-title">{t('Import Configuration')}</div>
           <div className="settings-row">
-            <label>File</label>
+            <label>{t('File')}</label>
             <input type="file" accept=".json,application/json" onChange={handleConfigFile} />
           </div>
           <textarea
             className="config-import-text"
             value={configImportText}
             onChange={(e) => setConfigImportText(e.target.value)}
-            placeholder="Paste an SBS config bundle as JSON, or choose a JSON file above."
+            placeholder={t('Paste an SBS config bundle as JSON, or choose a JSON file above.')}
           />
           <div className="settings-inline">
-            <button type="button" className="btn-primary" onClick={() => handleImportConfig()} disabled={!configImportText.trim()}>Import and Apply</button>
-            <button type="button" onClick={() => setConfigImportText('')} disabled={!configImportText}>Clear</button>
+            <button type="button" className="btn-primary" onClick={() => handleImportConfig()} disabled={!configImportText.trim()}>{t('Import and Apply')}</button>
+            <button type="button" onClick={() => setConfigImportText('')} disabled={!configImportText}>{t('Clear')}</button>
           </div>
         </>
       )
@@ -2371,9 +2394,9 @@ export default function App() {
     // output tab
     return (
       <>
-        <div className="settings-section-title">Transport</div>
+        <div className="settings-section-title">{t('Transport')}</div>
         <div className="settings-row">
-          <label>Output</label>
+          <label>{t('Output')}</label>
           <select
             value={editingOutputId || ''}
             onChange={(e) => {
@@ -2381,7 +2404,7 @@ export default function App() {
               if (output) openOutputTransport(output)
             }}
           >
-            <option value="" disabled>Select output</option>
+            <option value="" disabled>{t('Select output')}</option>
             {outputEntries.map((output: any) => (
               <option key={output.id} value={output.id}>{output.name || output.id}</option>
             ))}
@@ -2390,22 +2413,22 @@ export default function App() {
         {selectedOutput ? (
           <>
             <div className="settings-row">
-              <label>Sink Type</label>
+              <label>{t('Sink Type')}</label>
               <select value={sinkType} onChange={(e) => setEditOutputTransport((s) => ({ ...s, sink_type: e.target.value }))}>
                 <option value="srt">SRT</option>
                 <option value="rtmp">RTMP</option>
-                <option value="file">File</option>
-                <option value="fakesink">Fakesink</option>
+                <option value="file">{t('File')}</option>
+                <option value="fakesink">{t('Fakesink')}</option>
               </select>
             </div>
             {sinkType === 'srt' && (
               <>
                 <div className="settings-row">
-                  <label>SRT URI</label>
+                  <label>{t('SRT URI')}</label>
                   <input value={editOutputTransport.srt_uri || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, srt_uri: e.target.value }))} />
                 </div>
                 <div className="settings-row">
-                  <label>Latency</label>
+                  <label>{t('Latency')}</label>
                   <div className="settings-inline">
                     <input type="number" value={editOutputTransport.srt_latency_ms || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, srt_latency_ms: e.target.value }))} />
                     <span>ms</span>
@@ -2416,11 +2439,11 @@ export default function App() {
             {sinkType === 'rtmp' && (
               <>
                 <div className="settings-row">
-                  <label>RTMP URI</label>
+                  <label>{t('RTMP URI')}</label>
                   <input value={editOutputTransport.rtmp_uri || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, rtmp_uri: e.target.value }))} />
                 </div>
                 <div className="settings-row">
-                  <label>Stream Key</label>
+                  <label>{t('Stream Key')}</label>
                   <input type="password" value={editOutputTransport.rtmp_passcode || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, rtmp_passcode: e.target.value }))} />
                 </div>
               </>
@@ -2428,7 +2451,7 @@ export default function App() {
             {sinkType === 'file' && (
               <>
                 <div className="settings-row">
-                  <label>File Type</label>
+                  <label>{t('File Type')}</label>
                   <select value={editOutputTransport.file_container || 'ts'} onChange={(e) => setEditOutputTransport((s) => ({ ...s, file_container: e.target.value }))}>
                     <option value="ts">MPEG-TS (.ts)</option>
                     <option value="mkv">Matroska (.mkv)</option>
@@ -2437,30 +2460,30 @@ export default function App() {
                   </select>
                 </div>
                 <div className="settings-row">
-                  <label>Path Type</label>
+                  <label>{t('Path Type')}</label>
                   <select value={editOutputTransport.file_path_mode || 'file'} onChange={(e) => setEditOutputTransport((s) => ({ ...s, file_path_mode: e.target.value }))}>
-                    <option value="file">File</option>
-                    <option value="directory">Directory</option>
+                    <option value="file">{t('File')}</option>
+                    <option value="directory">{t('Directory')}</option>
                   </select>
                 </div>
                 <div className="settings-row">
-                  <label>{(editOutputTransport.file_path_mode || 'file') === 'directory' ? 'Directory' : 'File Path'}</label>
+                  <label>{(editOutputTransport.file_path_mode || 'file') === 'directory' ? t('Directory') : t('File Path')}</label>
                   <input value={editOutputTransport.file_path || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, file_path: e.target.value }))} />
                 </div>
                 {(editOutputTransport.file_path_mode || 'file') === 'directory' && (
                   <div className="settings-row">
-                    <label>Filename Prefix</label>
+                    <label>{t('Filename Prefix')}</label>
                     <input value={editOutputTransport.file_prefix || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, file_prefix: e.target.value }))} />
                   </div>
                 )}
                 {(editOutputTransport.file_path_mode || 'file') === 'directory' && (
-                  <div className="settings-hint">Files are written as prefix-date.suffix, for example {(editOutputTransport.file_prefix || 'stream')}-YYYYMMDD-HHMMSS.{editOutputTransport.file_container || 'ts'}.</div>
+                  <div className="settings-hint">{t('Files are written as prefix-date.suffix, for example {prefix}-YYYYMMDD-HHMMSS.{suffix}.', { prefix: editOutputTransport.file_prefix || 'stream', suffix: editOutputTransport.file_container || 'ts' })}</div>
                 )}
               </>
             )}
           </>
         ) : (
-          <div className="settings-empty">Select an output to edit its transport settings.</div>
+          <div className="settings-empty">{t('Select an output to edit its transport settings.')}</div>
         )}
       </>
     )
@@ -2472,12 +2495,13 @@ export default function App() {
       <div className="settings-overlay" onClick={() => setSettingsOpen(false)}>
         <div className="settings-dialog" role="dialog" aria-modal="true" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
           <div className="settings-header">
-            <h2>Settings</h2>
+            <h2>{t('Settings')}</h2>
             <button onClick={() => setSettingsOpen(false)}>X</button>
           </div>
           <div className="settings-content">
             <nav className="settings-sidebar">
-              <button className={settingsTab === 'canvas' ? 'active' : ''} onClick={() => setSettingsTab('canvas')}>Video</button>
+              <button className={settingsTab === 'interface' ? 'active' : ''} onClick={() => setSettingsTab('interface')}>{t('Interface')}</button>
+              <button className={settingsTab === 'canvas' ? 'active' : ''} onClick={() => setSettingsTab('canvas')}>{t('Video')}</button>
               <button className={settingsTab === 'encoder' ? 'active' : ''} onClick={() => {
                 getEncoderConfig().then((cfg: any) => {
                   setSharedEncoder({
@@ -2490,7 +2514,7 @@ export default function App() {
                   })
                 }).catch(() => {})
                 setSettingsTab('encoder')
-              }}>Encoder</button>
+              }}>{t('Encoder')}</button>
               <button className={settingsTab === 'preview' ? 'active' : ''} onClick={() => {
                 getPreviewEncoderConfig().then((cfg: any) => {
                   setPreviewEncoder({
@@ -2502,8 +2526,8 @@ export default function App() {
                   })
                 }).catch(() => {})
                 setSettingsTab('preview')
-              }}>Preview</button>
-              <button className={settingsTab === 'output' ? 'active' : ''} onClick={() => setSettingsTab('output')}>Output</button>
+              }}>{t('Preview')}</button>
+              <button className={settingsTab === 'output' ? 'active' : ''} onClick={() => setSettingsTab('output')}>{t('Output')}</button>
               <button className={settingsTab === 'auth' ? 'active' : ''} onClick={() => {
                 setAuthSettings({
                   passwordless: state.auth.passwordless,
@@ -2511,22 +2535,26 @@ export default function App() {
                   password: '',
                 })
                 setSettingsTab('auth')
-              }}>Auth</button>
-              <button className={settingsTab === 'config' ? 'active' : ''} onClick={() => setSettingsTab('config')}>Config</button>
+              }}>{t('Auth')}</button>
+              <button className={settingsTab === 'config' ? 'active' : ''} onClick={() => setSettingsTab('config')}>{t('Config')}</button>
             </nav>
             <div className="settings-body">
               {renderSettingsBody()}
             </div>
           </div>
           <div className="settings-footer">
-            <button onClick={() => setSettingsOpen(false)}>Cancel</button>
-            {settingsTab === 'config' ? null : settingsTab === 'canvas' ? (
+            {settingsTab === 'interface' ? (
+              <button className="btn-primary" onClick={() => setSettingsOpen(false)}>{t('Close')}</button>
+            ) : (
+              <button onClick={() => setSettingsOpen(false)}>{t('Cancel')}</button>
+            )}
+            {settingsTab === 'interface' || settingsTab === 'config' ? null : settingsTab === 'canvas' ? (
               <>
-                <button onClick={() => saveCanvasSettings()}>Save</button>
-                <button className="btn-primary" onClick={() => applySettings()}>Apply</button>
+                <button onClick={() => saveCanvasSettings()}>{t('Save')}</button>
+                <button className="btn-primary" onClick={() => applySettings()}>{t('Apply')}</button>
               </>
             ) : (
-              <button className="btn-primary" onClick={() => applySettings()}>Apply</button>
+              <button className="btn-primary" onClick={() => applySettings()}>{t('Apply')}</button>
             )}
           </div>
         </div>
@@ -2540,23 +2568,23 @@ export default function App() {
       <div className="settings-overlay" onClick={() => setSourceCreateOpen(false)}>
         <div className="settings-dialog source-picker-dialog" role="dialog" aria-modal="true" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
           <div className="settings-header">
-            <h2>Choose Source Type</h2>
+            <h2>{t('Choose Source Type')}</h2>
             <button onClick={() => setSourceCreateOpen(false)}>X</button>
           </div>
           <div className="source-picker-body">
-            <div className="source-picker-title">Select the kind of source to add, then configure it in the next step.</div>
+            <div className="source-picker-title">{t('Select the kind of source to add, then configure it in the next step.')}</div>
             <div className="source-kind-grid">
               {sourceKinds.map((kind) => (
                 <button key={kind.id} className="source-kind-card" onClick={() => handleSelectSourceKind(kind.id)}>
                   <strong>{kind.name}</strong>
                   <span>{kind.summary}</span>
-                  <small>{kind.pausable ? 'Pausable when inactive' : 'Live source stays running'}</small>
+                  <small>{kind.pausable ? t('Pausable when inactive') : t('Live source stays running')}</small>
                 </button>
               ))}
             </div>
           </div>
           <div className="settings-footer">
-            <button onClick={() => setSourceCreateOpen(false)}>Cancel</button>
+            <button onClick={() => setSourceCreateOpen(false)}>{t('Cancel')}</button>
           </div>
         </div>
       </div>
@@ -2571,17 +2599,17 @@ export default function App() {
       <div className="settings-overlay" onClick={() => setSourceConfigOpen(false)}>
         <div className="settings-dialog source-config-dialog" role="dialog" aria-modal="true" tabIndex={-1} onClick={(event) => event.stopPropagation()}>
           <div className="settings-header">
-            <h2>Create {kind.name}</h2>
+            <h2>{t('Create {name}', { name: kind.name })}</h2>
             <button onClick={() => setSourceConfigOpen(false)}>X</button>
           </div>
           <div className="settings-body source-config-body">
             <div className="source-config-summary">
               <strong>{kind.name}</strong>
               <span>{kind.summary}</span>
-              <small>{kind.pausable ? 'Can pause when inactive' : 'Live source remains running when inactive'}</small>
+              <small>{kind.pausable ? t('Can pause when inactive') : t('Live source remains running when inactive')}</small>
             </div>
             <div className="source-create-row">
-              <label>Name</label>
+              <label>{t('Name')}</label>
               <input value={sourceCreateName} onChange={(event) => setSourceCreateName(event.target.value)} />
             </div>
             {kind.id === 'v4l2src' ? renderV4L2ConfigControls(sourceCreateConfig, setSourceCreateConfig) : kind.id === 'alsa_audio' ? renderALSAConfigControls(sourceCreateConfig, setSourceCreateConfig) : (kind.fields ?? []).map((field) => (
@@ -2592,9 +2620,9 @@ export default function App() {
             ))}
           </div>
           <div className="settings-footer">
-            <button onClick={() => { setSourceConfigOpen(false); setSourceCreateOpen(true) }}>Back</button>
-            <button onClick={() => setSourceConfigOpen(false)}>Cancel</button>
-            <button className="btn-primary" onClick={() => handleCreateSourceFromCatalog().catch((error) => setStatus(String(error)))}>Create Source</button>
+            <button onClick={() => { setSourceConfigOpen(false); setSourceCreateOpen(true) }}>{t('Back')}</button>
+            <button onClick={() => setSourceConfigOpen(false)}>{t('Cancel')}</button>
+            <button className="btn-primary" onClick={() => handleCreateSourceFromCatalog().catch((error) => setStatus(String(error)))}>{t('Create Source')}</button>
           </div>
         </div>
       </div>
@@ -2603,7 +2631,7 @@ export default function App() {
 
   function renderFilterEditor() {
     if (!effectiveFilterTarget || (effectiveFilterTarget.kind === 'scene' ? !activeFilterScene : !activeFilterSource)) {
-      return <div className="history-list">No scene or source selected to edit filters.</div>
+      return <div className="history-list">{t('No scene or source selected to edit filters.')}</div>
     }
 
     const targetName = effectiveFilterTarget.kind === 'scene'
@@ -2614,16 +2642,16 @@ export default function App() {
       <>
         <div className="filter-target list-item row-item">
           <div>
-            <span>{effectiveFilterTarget.kind === 'scene' ? 'Target Scene' : 'Target Source'}</span>
+            <span>{effectiveFilterTarget.kind === 'scene' ? t('Target Scene') : t('Target Source')}</span>
             <small>{targetName}</small>
           </div>
         </div>
         <div className="filter-editor">
           <div className="filter-list-pane">
-            <div className="filter-section-title">Effect Filters</div>
-            <div className="filter-list" role="listbox" aria-label="Effect Filters">
+            <div className="filter-section-title">{t('Effect Filters')}</div>
+            <div className="filter-list" role="listbox" aria-label={t('Effect Filters')}>
               {activeFilters.length === 0 ? (
-                <div className="filter-empty">No filters applied.</div>
+                <div className="filter-empty">{t('No filters applied.')}</div>
               ) : activeFilters.map((filter: any) => (
                 <button
                   key={filter.id}
@@ -2634,13 +2662,13 @@ export default function App() {
                   onClick={() => setSelectedFilterId(filter.id)}
                 >
                   <span>{filterDisplayName(filter.type)}</span>
-                  <small>{filter.enabled ? 'On' : 'Off'}</small>
+                  <small>{filter.enabled ? t('On') : t('Off')}</small>
                 </button>
               ))}
             </div>
             <div className="filter-toolbar">
               <select
-                aria-label="Add effect filter"
+                aria-label={t('Add effect filter')}
                 value=""
                 onChange={(event) => {
                   const type = event.target.value
@@ -2648,22 +2676,22 @@ export default function App() {
                   handleAddFilterType(type).catch((error) => setStatus(String(error)))
                 }}
               >
-                <option value="">+ Add</option>
-                <option value="grayscale">Grayscale</option>
-                <option value="brightness">Brightness</option>
-                <option value="contrast">Contrast</option>
-                <option value="color_correction">Color Correction</option>
-                <option value="luma_key">Luma Key</option>
-                <option value="chroma_key">Chroma Key</option>
-                <option value="crop">Crop</option>
-                <option value="mirror">Mirror</option>
-                <option value="flip">Flip</option>
-                <option value="rotation">Rotation</option>
-                <option value="lut">Apply LUT</option>
-                <option value="hdr_to_sdr_lut">HDR→SDR LUT</option>
+                <option value="">{t('+ Add')}</option>
+                <option value="grayscale">{t('Grayscale')}</option>
+                <option value="brightness">{t('Brightness')}</option>
+                <option value="contrast">{t('Contrast')}</option>
+                <option value="color_correction">{t('Color Correction')}</option>
+                <option value="luma_key">{t('Luma Key')}</option>
+                <option value="chroma_key">{t('Chroma Key')}</option>
+                <option value="crop">{t('Crop')}</option>
+                <option value="mirror">{t('Mirror')}</option>
+                <option value="flip">{t('Flip')}</option>
+                <option value="rotation">{t('Rotation')}</option>
+                <option value="lut">{t('Apply LUT')}</option>
+                <option value="hdr_to_sdr_lut">{t('HDR→SDR LUT')}</option>
               </select>
               <button
-                aria-label="Remove selected filter"
+                aria-label={t('Remove selected filter')}
                 disabled={!selectedFilter}
                 onClick={() => handleRemoveSelectedFilter().catch((error) => setStatus(String(error)))}
               >−</button>
@@ -2680,54 +2708,54 @@ export default function App() {
                       checked={selectedFilter.enabled}
                       onChange={(event) => handleToggleFilter(selectedFilter, event.target.checked).catch((error) => setStatus(String(error)))}
                     />
-                    Enabled
+                    {t('Enabled')}
                   </label>
                 </div>
                 {selectedFilter.type === 'color_correction' ? (
                   <>
-                    {renderFilterParamSlider(selectedFilter, 'saturation', 'Saturation')}
-                    {renderFilterParamSlider(selectedFilter, 'brightness', 'Brightness')}
-                    {renderFilterParamSlider(selectedFilter, 'contrast', 'Contrast')}
-                    {renderFilterParamSlider(selectedFilter, 'gamma', 'Gamma')}
-                    {renderFilterParamSlider(selectedFilter, 'hue', 'Hue')}
+                    {renderFilterParamSlider(selectedFilter, 'saturation', t('Saturation'))}
+                    {renderFilterParamSlider(selectedFilter, 'brightness', t('Brightness'))}
+                    {renderFilterParamSlider(selectedFilter, 'contrast', t('Contrast'))}
+                    {renderFilterParamSlider(selectedFilter, 'gamma', t('Gamma'))}
+                    {renderFilterParamSlider(selectedFilter, 'hue', t('Hue'))}
                   </>
                 ) : selectedFilter.type === 'luma_key' ? (
                   <>
-                    {renderFilterParamSlider(selectedFilter, 'min', 'Minimum Luma')}
-                    {renderFilterParamSlider(selectedFilter, 'max', 'Maximum Luma')}
-                    {renderFilterParamSlider(selectedFilter, 'smoothness', 'Smoothness')}
+                    {renderFilterParamSlider(selectedFilter, 'min', t('Minimum Luma'))}
+                    {renderFilterParamSlider(selectedFilter, 'max', t('Maximum Luma'))}
+                    {renderFilterParamSlider(selectedFilter, 'smoothness', t('Smoothness'))}
                   </>
                 ) : selectedFilter.type === 'chroma_key' ? (
                   <>
                     <label className="filter-property-row">
-                      <span>Key Color</span>
+                      <span>{t('Key Color')}</span>
                       <div className="filter-control-row">
                         <input
                           type="color"
-                          aria-label="Chroma key color"
+                          aria-label={t('Chroma key color')}
                           value={String(selectedFilter.params?.color ?? '#00ff00')}
                           onChange={(event) => handleCommitFilterColor(selectedFilter, event.target.value).catch((error) => setStatus(String(error)))}
                         />
                       </div>
                     </label>
-                    {renderFilterParamSlider(selectedFilter, 'similarity', 'Similarity')}
-                    {renderFilterParamSlider(selectedFilter, 'smoothness', 'Smoothness')}
-                    {renderFilterParamSlider(selectedFilter, 'spill', 'Spill Reduction')}
+                    {renderFilterParamSlider(selectedFilter, 'similarity', t('Similarity'))}
+                    {renderFilterParamSlider(selectedFilter, 'smoothness', t('Smoothness'))}
+                    {renderFilterParamSlider(selectedFilter, 'spill', t('Spill Reduction'))}
                   </>
                 ) : selectedFilter.type === 'crop' ? (
                   <>
-                    {renderFilterParamSlider(selectedFilter, 'top', 'Top')}
-                    {renderFilterParamSlider(selectedFilter, 'right', 'Right')}
-                    {renderFilterParamSlider(selectedFilter, 'bottom', 'Bottom')}
-                    {renderFilterParamSlider(selectedFilter, 'left', 'Left')}
+                    {renderFilterParamSlider(selectedFilter, 'top', t('Top'))}
+                    {renderFilterParamSlider(selectedFilter, 'right', t('Right'))}
+                    {renderFilterParamSlider(selectedFilter, 'bottom', t('Bottom'))}
+                    {renderFilterParamSlider(selectedFilter, 'left', t('Left'))}
                   </>
                 ) : selectedFilter.type === 'rotation' ? (
                   <>
-                    {renderFilterParamSlider(selectedFilter, 'degrees', 'Degrees')}
+                    {renderFilterParamSlider(selectedFilter, 'degrees', t('Degrees'))}
                   </>
                 ) : selectedFilter.type === 'mirror' || selectedFilter.type === 'flip' ? (
                   <div className="filter-empty properties-empty">
-                    {selectedFilter.type === 'mirror' ? 'Mirrors the source horizontally while enabled.' : 'Flips the source vertically while enabled.'}
+                    {selectedFilter.type === 'mirror' ? t('Mirrors the source horizontally while enabled.') : t('Flips the source vertically while enabled.')}
                   </div>
                 ) : (
                   <label className="filter-property-row">
@@ -2777,26 +2805,26 @@ export default function App() {
                       />
                       <span className="filter-unit">{filterAmountUnit(selectedFilter)}</span>
                     </div>
-                    <small className="filter-value">Current: {formatFilterAmount(selectedFilter)} - Range: {formatFilterAmountRange(selectedFilter)}</small>
+                    <small className="filter-value">{t('Current: {current} - Range: {range}', { current: formatFilterAmount(selectedFilter), range: formatFilterAmountRange(selectedFilter) })}</small>
                   </label>
                 )}
                 {selectedFilter.type === 'hdr_to_sdr_lut' && (
                   <>
-                    {renderHdrFilterSlider(selectedFilter, 'saturation', 'Saturation')}
-                    {renderHdrFilterSlider(selectedFilter, 'brightness', 'Brightness')}
-                    {renderHdrFilterSlider(selectedFilter, 'hue', 'Hue')}
+                    {renderHdrFilterSlider(selectedFilter, 'saturation', t('Saturation'))}
+                    {renderHdrFilterSlider(selectedFilter, 'brightness', t('Brightness'))}
+                    {renderHdrFilterSlider(selectedFilter, 'hue', t('Hue'))}
                     <label className="filter-property-row">
-                      <span>Path</span>
+                      <span>{t('Path')}</span>
                       <input
                         value={String(selectedFilter.params?.path ?? '')}
-                        placeholder="Built-in HDR→SDR LUT"
+                        placeholder={t('Built-in HDR→SDR LUT')}
                         onChange={(event) => {
                           if (!effectiveFilterTarget) return
                           const params = { ...(selectedFilter.params ?? {}), amount: defaultFilterAmount(selectedFilter), path: event.target.value }
                           const update = effectiveFilterTarget.kind === 'scene'
                             ? updateSceneFilter(effectiveFilterTarget.id, selectedFilter.id, selectedFilter.enabled, params)
                             : updateFilter(effectiveFilterTarget.id, selectedFilter.id, selectedFilter.enabled, params)
-                          update.then(() => setStatus('Updated LUT path')).catch((error) => setStatus(String(error)))
+                          update.then(() => setStatus(t('Updated LUT path'))).catch((error) => setStatus(String(error)))
                         }}
                       />
                     </label>
@@ -2804,7 +2832,7 @@ export default function App() {
                 )}
                 {selectedFilter.type === 'lut' && (
                   <label className="filter-property-row">
-                    <span>Path</span>
+                    <span>{t('Path')}</span>
                     <input
                       value={String(selectedFilter.params?.path ?? '')}
                       placeholder="/path/to/filter.cube"
@@ -2814,14 +2842,14 @@ export default function App() {
                         const update = effectiveFilterTarget.kind === 'scene'
                           ? updateSceneFilter(effectiveFilterTarget.id, selectedFilter.id, selectedFilter.enabled, params)
                           : updateFilter(effectiveFilterTarget.id, selectedFilter.id, selectedFilter.enabled, params)
-                        update.then(() => setStatus('Updated LUT path')).catch((error) => setStatus(String(error)))
+                        update.then(() => setStatus(t('Updated LUT path'))).catch((error) => setStatus(String(error)))
                       }}
                     />
                   </label>
                 )}
               </>
             ) : (
-              <div className="filter-empty properties-empty">Select or add an effect filter.</div>
+              <div className="filter-empty properties-empty">{t('Select or add an effect filter.')}</div>
             )}
           </div>
         </div>
@@ -2835,12 +2863,12 @@ export default function App() {
       <div className="settings-overlay" onClick={() => setFiltersOpen(false)}>
         <div className="settings-dialog filters-dialog" role="dialog" aria-modal="true" tabIndex={-1} onClick={(e) => e.stopPropagation()}>
           <div className="settings-header">
-            <h2>Effect Filters</h2>
+            <h2>{t('Effect Filters')}</h2>
             <button onClick={() => setFiltersOpen(false)}>X</button>
           </div>
           <div className="settings-content">
-            <nav className="settings-sidebar filters-source-sidebar" aria-label="Filter source selection">
-              <div className="ctx-group-label">Scenes</div>
+            <nav className="settings-sidebar filters-source-sidebar" aria-label={t('Filter source selection')}>
+              <div className="ctx-group-label">{t('Scenes')}</div>
               {sceneEntries.map((scene) => (
                 <button
                   key={scene.id}
@@ -2853,7 +2881,7 @@ export default function App() {
                   {scene.name}
                 </button>
               ))}
-              <div className="ctx-group-label">Sources</div>
+              <div className="ctx-group-label">{t('Sources')}</div>
               {sourceEntries.map((source) => (
                 <button
                   key={source.id}
@@ -2873,7 +2901,7 @@ export default function App() {
             </div>
           </div>
           <div className="settings-footer">
-            <button className="btn-primary" onClick={() => setFiltersOpen(false)}>Close</button>
+            <button className="btn-primary" onClick={() => setFiltersOpen(false)}>{t('Close')}</button>
           </div>
         </div>
       </div>
@@ -2893,10 +2921,10 @@ export default function App() {
     const device = audio.device || source.audio?.device || 'hw:0,2'
     const setAudio = (patch: Record<string, unknown>) => updateSceneItemAudio(audioFilterEditor.sceneId, item, source, { device, ...patch })
     const title = audioFilterEditor.type === 'channel_gain'
-      ? 'Audio Filter: Channel Gain'
+      ? t('Audio Filter: Channel Gain')
       : audioFilterEditor.type === 'delay'
-        ? 'Audio Filter: Delay'
-        : 'Audio Filter: Equalizer'
+        ? t('Audio Filter: Delay')
+        : t('Audio Filter: Equalizer')
 
     return (
       <div className="settings-overlay" onClick={() => setAudioFilterEditor(null)}>
@@ -2909,19 +2937,19 @@ export default function App() {
             <div className="source-config-summary">
               <strong>{source.name}</strong>
               <span>{device}</span>
-              <small>{enabled ? 'Audio filter is active' : 'Enable audio on this strip to hear filter changes'}</small>
+              <small>{enabled ? t('Audio filter is active') : t('Enable audio on this strip to hear filter changes')}</small>
             </div>
             {audioFilterEditor.type === 'channel_gain' && (
               <>
                 <label className="filter-property-row">
-                  <div className="filter-label-block"><span>Left Channel Gain</span><small>0% mutes left, 100% is unchanged, 200% is +6 dB.</small></div>
+                  <div className="filter-label-block"><span>{t('Left Channel Gain')}</span><small>{t('0% mutes left, 100% is unchanged, 200% is +6 dB.')}</small></div>
                   <div className="filter-control-row">
                     <input type="range" min="0" max="2" step="0.05" value={Number(audio.left_gain ?? 1)} disabled={!enabled} onChange={(event) => setAudio({ left_gain: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
                     <span className="filter-unit">{formatAudioVolume(audio.left_gain ?? 1)}</span>
                   </div>
                 </label>
                 <label className="filter-property-row">
-                  <div className="filter-label-block"><span>Right Channel Gain</span><small>0% mutes right, 100% is unchanged, 200% is +6 dB.</small></div>
+                  <div className="filter-label-block"><span>{t('Right Channel Gain')}</span><small>{t('0% mutes right, 100% is unchanged, 200% is +6 dB.')}</small></div>
                   <div className="filter-control-row">
                     <input type="range" min="0" max="2" step="0.05" value={Number(audio.right_gain ?? 1)} disabled={!enabled} onChange={(event) => setAudio({ right_gain: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
                     <span className="filter-unit">{formatAudioVolume(audio.right_gain ?? 1)}</span>
@@ -2931,7 +2959,7 @@ export default function App() {
             )}
             {audioFilterEditor.type === 'delay' && (
               <label className="filter-property-row">
-                <div className="filter-label-block"><span>Audio Delay</span><small>Delays this source before mixing, useful for HDMI/video sync.</small></div>
+                <div className="filter-label-block"><span>{t('Audio Delay')}</span><small>{t('Delays this source before mixing, useful for HDMI/video sync.')}</small></div>
                 <div className="filter-control-row">
                   <input type="range" min="0" max="5000" step="10" value={Number(audio.delay_ms ?? 0)} disabled={!enabled} onChange={(event) => setAudio({ delay_ms: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
                   <input className="filter-number-input" type="number" min="0" max="5000" step="10" value={Number(audio.delay_ms ?? 0)} disabled={!enabled} onChange={(event) => setAudio({ delay_ms: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
@@ -2951,7 +2979,7 @@ export default function App() {
             )}
           </div>
           <div className="settings-footer">
-            <button onClick={() => setAudioFilterEditor(null)}>Close</button>
+            <button onClick={() => setAudioFilterEditor(null)}>{t('Close')}</button>
           </div>
         </div>
       </div>
@@ -2971,8 +2999,8 @@ export default function App() {
       ...patch,
     })
     const title = masterAudioFilterEditor === 'channel_gain'
-      ? 'Global Audio Filter: Channel Gain'
-      : 'Global Audio Filter: Equalizer'
+      ? t('Global Audio Filter: Channel Gain')
+      : t('Global Audio Filter: Equalizer')
 
     return (
       <div className="settings-overlay" onClick={() => setMasterAudioFilterEditor(null)}>
@@ -2983,21 +3011,21 @@ export default function App() {
           </div>
           <div className="settings-body audio-filter-body">
             <div className="source-config-summary">
-              <strong>Master Output</strong>
-              <span>Global program audio</span>
-              <small>Applies after all scene sources are mixed.</small>
+              <strong>{t('Master Output')}</strong>
+              <span>{t('Global program audio')}</span>
+              <small>{t('Applies after all scene sources are mixed.')}</small>
             </div>
             {masterAudioFilterEditor === 'channel_gain' && (
               <>
                 <label className="filter-property-row">
-                  <div className="filter-label-block"><span>Left Channel Gain</span><small>0% mutes left, 100% is unchanged, 200% is +6 dB.</small></div>
+                  <div className="filter-label-block"><span>{t('Left Channel Gain')}</span><small>{t('0% mutes left, 100% is unchanged, 200% is +6 dB.')}</small></div>
                   <div className="filter-control-row">
                     <input type="range" min="0" max="2" step="0.05" value={leftGain} onChange={(event) => setMasterFilter({ left_gain: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
                     <span className="filter-unit">{formatAudioVolume(leftGain)}</span>
                   </div>
                 </label>
                 <label className="filter-property-row">
-                  <div className="filter-label-block"><span>Right Channel Gain</span><small>0% mutes right, 100% is unchanged, 200% is +6 dB.</small></div>
+                  <div className="filter-label-block"><span>{t('Right Channel Gain')}</span><small>{t('0% mutes right, 100% is unchanged, 200% is +6 dB.')}</small></div>
                   <div className="filter-control-row">
                     <input type="range" min="0" max="2" step="0.05" value={rightGain} onChange={(event) => setMasterFilter({ right_gain: Number(event.target.value) }).catch((error) => setStatus(String(error)))} />
                     <span className="filter-unit">{formatAudioVolume(rightGain)}</span>
@@ -3017,7 +3045,7 @@ export default function App() {
             )}
           </div>
           <div className="settings-footer">
-            <button onClick={() => setMasterAudioFilterEditor(null)}>Close</button>
+            <button onClick={() => setMasterAudioFilterEditor(null)}>{t('Close')}</button>
           </div>
         </div>
       </div>
@@ -3028,7 +3056,7 @@ export default function App() {
     if (panel === 'scenes') {
       return (
         <>
-          <div className="panel-title-row"><h2>Scenes</h2><button onClick={() => handleCreateScene().catch((error) => setStatus(String(error)))}>+ Scene</button></div>
+          <div className="panel-title-row"><h2>{t('Scenes')}</h2><button onClick={() => handleCreateScene().catch((error) => setStatus(String(error)))}>{t('+ Scene')}</button></div>
           <div className="list-panel compact">
             {sceneEntries.map((scene) => (
               <div
@@ -3041,16 +3069,16 @@ export default function App() {
               >
                 <button
                   className={scene.id === state.activeSceneId ? 'list-item-action active' : 'list-item-action'}
-                  onClick={() => setActiveScene(scene.id, 'trans-fade').then(() => setStatus(`Active scene: ${scene.name}`)).catch((error) => setStatus(String(error)))}
+                  onClick={() => setActiveScene(scene.id, 'trans-fade').then(() => setStatus(t('Active scene: {name}', { name: scene.name }))).catch((error) => setStatus(String(error)))}
                 >
                   <span>{scene.name}</span>
-                  <small>{scene.id}{scene.id === state.previewSceneId && scene.id !== state.activeSceneId ? ' · preview' : ''}</small>
+                  <small>{scene.id}{scene.id === state.previewSceneId && scene.id !== state.activeSceneId ? ` · ${t('preview')}` : ''}</small>
                 </button>
-                <button onClick={() => setPreviewScene(scene.id).then(() => setStatus(`Preview scene: ${scene.name}`)).catch((error) => setStatus(String(error)))} disabled={scene.id === state.previewSceneId}>
-                  Preview
+                <button onClick={() => setPreviewScene(scene.id).then(() => setStatus(t('Preview scene: {name}', { name: scene.name }))).catch((error) => setStatus(String(error)))} disabled={scene.id === state.previewSceneId}>
+                  {t('Preview')}
                 </button>
-                <button onClick={() => removeScene(scene.id).then(() => setStatus(`Removed scene: ${scene.name}`)).catch((error) => setStatus(String(error)))} disabled={sceneEntries.length <= 1}>
-                  Delete
+                <button onClick={() => removeScene(scene.id).then(() => setStatus(t('Removed scene: {name}', { name: scene.name }))).catch((error) => setStatus(String(error)))} disabled={sceneEntries.length <= 1}>
+                  {t('Delete')}
                 </button>
               </div>
             ))}
@@ -3062,18 +3090,18 @@ export default function App() {
     if (panel === 'sources') {
       return (
         <>
-          <div className="panel-title-row"><h2>Sources</h2><button onClick={() => handleOpenSourceCatalog().catch((error) => setStatus(String(error)))}>+ Source</button></div>
+          <div className="panel-title-row"><h2>{t('Sources')}</h2><button onClick={() => handleOpenSourceCatalog().catch((error) => setStatus(String(error)))}>{t('+ Source')}</button></div>
           <div className="list-panel compact">
             {sourcePanelEntries.map((source) => {
               if (state.editingSourceId === source.id) {
                 return (
                   <div key={source.id} className="source-edit-form">
                     <div className="source-create-row">
-                      <label>Name</label>
+                      <label>{t('Name')}</label>
                       <input value={sourceEditName} onChange={(e) => setSourceEditName(e.target.value)} />
                     </div>
                     <div className="source-create-row">
-                      <label>Enabled</label>
+                      <label>{t('Enabled')}</label>
                       <input type="checkbox" checked={sourceEditEnabled} onChange={(e) => setSourceEditEnabled(e.target.checked)} />
                     </div>
                     {(() => {
@@ -3092,7 +3120,7 @@ export default function App() {
                       ))
                     })()}
                     {(source as any).state === 'running' && (
-                      <div className="source-edit-notice">Changes to config may require restarting the source to take effect</div>
+                      <div className="source-edit-notice">{t('Changes to config may require restarting the source to take effect')}</div>
                     )}
                     <div className="button-row">
                       <button onClick={async () => {
@@ -3100,9 +3128,9 @@ export default function App() {
                         if (Object.keys(sourceEditConfig).length > 0) patch.config = sourceEditConfig
                         await updateSource(source.id, patch as any).catch((e) => setStatus(String(e)))
                         setEditingSourceId(null)
-                        setStatus(`Updated source: ${sourceEditName}`)
-                      }}>Save</button>
-                      <button onClick={() => setEditingSourceId(null)}>Cancel</button>
+                        setStatus(t('Updated source: {name}', { name: sourceEditName }))
+                      }}>{t('Save')}</button>
+                      <button onClick={() => setEditingSourceId(null)}>{t('Cancel')}</button>
                     </div>
                   </div>
                 )
@@ -3127,7 +3155,7 @@ export default function App() {
                     <small>{(source as any).type} · {source.state}</small>
                   </div>
                   <div className="button-row compact-row">
-                    <button className="visibility-btn" title={sceneItemForSource ? (sourceVisibleInScene ? 'Hide in scene' : 'Show in scene') : 'Add to scene'} onClick={async () => {
+                    <button className="visibility-btn" title={sceneItemForSource ? (sourceVisibleInScene ? t('Hide in scene') : t('Show in scene')) : t('Add to scene')} onClick={async () => {
                       if (!state.activeSceneId) return
                       if (sceneItemForSource) {
                         await updateSceneItem(state.activeSceneId, sceneItemForSource.id, { visible: !sourceVisibleInScene }).catch((e) => setStatus(String(e)))
@@ -3136,24 +3164,24 @@ export default function App() {
                         await addSceneItem(state.activeSceneId, source.id).catch((e) => setStatus(String(e)))
                       }
                     }}>
-                      {sceneItemForSource ? (sourceVisibleInScene ? 'Hide' : 'Show') : 'Add'}
+                      {sceneItemForSource ? (sourceVisibleInScene ? t('Hide') : t('Show')) : t('Add')}
                     </button>
-                    <button className="source-order-btn" title="Move layer up" disabled={!sceneItemForSource} onClick={() => moveSourceInActiveScene(source.id, 'up').catch((error) => setStatus(String(error)))}>
-                      Up
+                    <button className="source-order-btn" title={t('Move layer up')} disabled={!sceneItemForSource} onClick={() => moveSourceInActiveScene(source.id, 'up').catch((error) => setStatus(String(error)))}>
+                      {t('Up')}
                     </button>
-                    <button className="source-order-btn" title="Move layer down" disabled={!sceneItemForSource} onClick={() => moveSourceInActiveScene(source.id, 'down').catch((error) => setStatus(String(error)))}>
-                      Down
+                    <button className="source-order-btn" title={t('Move layer down')} disabled={!sceneItemForSource} onClick={() => moveSourceInActiveScene(source.id, 'down').catch((error) => setStatus(String(error)))}>
+                      {t('Down')}
                     </button>
                     <button onClick={() => {
                       openSourceEditor(source).catch((error) => setStatus(String(error)))
                     }}>
-                      Edit
+                      {t('Edit')}
                     </button>
                     <button onClick={() => handleRenameSource(source.id, source.name).catch((error) => setStatus(String(error)))}>
-                      Rename
+                      {t('Rename')}
                     </button>
-                    <button onClick={() => removeSource(source.id).then(() => setStatus(`Removed source: ${source.name}`)).catch((error) => setStatus(String(error)))}>
-                      Delete
+                    <button onClick={() => removeSource(source.id).then(() => setStatus(t('Removed source: {name}', { name: source.name }))).catch((error) => setStatus(String(error)))}>
+                      {t('Delete')}
                     </button>
                   </div>
                 </div>
@@ -3167,9 +3195,9 @@ export default function App() {
     if (panel === 'controls') {
       return (
         <>
-          <div className="panel-title-row"><h2>Controls</h2></div>
+          <div className="panel-title-row"><h2>{t('Controls')}</h2></div>
             <div className="control-column">
-              <button onClick={() => handleCreateOutput().catch((error) => setStatus(String(error)))}>+ Output</button>
+              <button onClick={() => handleCreateOutput().catch((error) => setStatus(String(error)))}>{t('+ Output')}</button>
               {outputEntries.map((output: any) => {
                 return (
                   <div key={output.id} className="output-card">
@@ -3179,21 +3207,21 @@ export default function App() {
                       <small>{output.state}</small>
                     </div>
                     <div className="button-row compact-row">
-                      <button onClick={() => runCommand(`output ${output.state === 'running' ? 'stop' : 'start'} ${output.id}`).then(() => setStatus(`${output.id} toggled`)).catch((error) => setStatus(String(error)))}>
-                        {output.state === 'running' ? 'Stop' : 'Start'}
+                      <button onClick={() => runCommand(`output ${output.state === 'running' ? 'stop' : 'start'} ${output.id}`).then(() => setStatus(t('{id} toggled', { id: output.id }))).catch((error) => setStatus(String(error)))}>
+                        {output.state === 'running' ? t('Stop') : t('Start')}
                       </button>
                       <button onClick={() => openOutputTransport(output)}>
-                        Settings
+                        {t('Settings')}
                       </button>
-                      <button onClick={() => removeOutput(output.id).then(() => setStatus(`Removed output: ${output.name}`)).catch((error) => setStatus(String(error)))}>
-                        Delete
+                      <button onClick={() => removeOutput(output.id).then(() => setStatus(t('Removed output: {name}', { name: output.name }))).catch((error) => setStatus(String(error)))}>
+                        {t('Delete')}
                       </button>
                     </div>
                   </div>
                 )
               })}
-              <button onClick={() => refreshState().then(() => setStatus('State refreshed')).catch((error) => setStatus(String(error)))}>Refresh State</button>
-              <button onClick={() => resetWorkspaceLayout()}>Reset Layout</button>
+              <button onClick={() => refreshState().then(() => setStatus(t('State refreshed'))).catch((error) => setStatus(String(error)))}>{t('Refresh State')}</button>
+              <button onClick={() => resetWorkspaceLayout()}>{t('Reset Layout')}</button>
             </div>
           </>
         )
@@ -3211,19 +3239,19 @@ export default function App() {
       })).filter((entry: any) => entry.source)
       return (
         <>
-          <div className="panel-title-row"><h2>Audio Mixer</h2><small>{state.audio.device || 'hw:0,2'}</small></div>
+          <div className="panel-title-row"><h2>{t('Audio Mixer')}</h2><small>{state.audio.device || 'hw:0,2'}</small></div>
           <div className="audio-mixer-panel">
             <div className="audio-device-summary">
               <div>
-                <strong>{activeScene?.name ?? 'Active Scene'} Mixer</strong>
-                <small>{audioInfo.backend ?? 'audio'} · scene-scoped controls · {state.audio.device || 'hw:0,2'}</small>
+                <strong>{activeScene?.name ?? t('Active Scene')} {t('Mixer')}</strong>
+                <small>{audioInfo.backend ?? t('audio')} · {t('scene-scoped controls')} · {state.audio.device || 'hw:0,2'}</small>
               </div>
               <div className="audio-summary-actions">
                 <button className={previewPlaybackEnabled ? 'active' : ''} onClick={() => setPreviewPlaybackEnabled((enabled) => !enabled)}>
-                  Preview audio {previewPlaybackEnabled ? 'on' : 'off'}
+                  {previewPlaybackEnabled ? t('Preview audio on') : t('Preview audio off')}
                 </button>
                 <span className={audioInfo.hifi?.available ? 'audio-status-pill live' : 'audio-status-pill'}>
-                  {audioInfo.hifi?.available ? 'HiFi bridge ready' : 'Audio bridge unknown'}
+                  {audioInfo.hifi?.available ? t('HiFi bridge ready') : t('Audio bridge unknown')}
                 </span>
               </div>
             </div>
@@ -3246,14 +3274,14 @@ export default function App() {
                       event.preventDefault()
                       setAudioContextMenu({ x: event.clientX, y: event.clientY, sceneId: state.activeSceneId || '', itemId: item.id, sourceId: source.id })
                     }}
-                    title="Right-click for audio filters"
+                    title={t('Right-click for audio filters')}
                   >
-                    <div className="obs-audio-scope">{active ? 'Active' : 'Scene'}</div>
+                    <div className="obs-audio-scope">{active ? t('Active') : t('Scene')}</div>
                     <button className="obs-audio-name" title={source.name} onClick={() => selectSceneItem(item.id)}>
                       {source.name}
                     </button>
                     <div className="obs-audio-db">{formatAudioDb(meter.level_db)}</div>
-                    <div className="obs-volume-value" title="Volume gain: 100% is unchanged; 200% is +6 dB gain.">{formatAudioVolume(volumeValue)}</div>
+                    <div className="obs-volume-value" title={t('Volume gain: 100% is unchanged; 200% is +6 dB gain.')}>{formatAudioVolume(volumeValue)}</div>
                     <div className="obs-audio-body">
                       <input
                         className="obs-volume-fader"
@@ -3262,7 +3290,7 @@ export default function App() {
                         max="2"
                         step="0.05"
                         value={volumeValue}
-                        onChange={(event) => setAudio({ volume: Number(event.target.value), enabled: true, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(`Audio updated: ${source.name}`)).catch((error) => setStatus(String(error)))}
+                        onChange={(event) => setAudio({ volume: Number(event.target.value), enabled: true, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(t('Audio updated: {name}', { name: source.name }))).catch((error) => setStatus(String(error)))}
                         aria-label={`${source.name} volume, ${formatAudioVolume(volumeValue)}`}
                       />
                       <div className="obs-meter-wrap">
@@ -3274,11 +3302,11 @@ export default function App() {
                       </div>
                     </div>
                     <div className="obs-audio-buttons">
-                      <button className={enabled ? 'active' : ''} onClick={() => setAudio({ enabled: !enabled, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(`Audio ${enabled ? 'off' : 'on'}: ${source.name}`)).catch((error) => setStatus(String(error)))}>{enabled ? 'On' : 'Off'}</button>
-                      <button className={!muted ? 'active' : ''} disabled={!enabled} onClick={() => setAudio({ mute: !audio.mute, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(`Audio ${audio.mute ? 'unmuted' : 'muted'}: ${source.name}`)).catch((error) => setStatus(String(error)))}>{audio.mute ? 'Muted' : 'Mute'}</button>
-                      <button className={audio.monitor ? 'active' : ''} disabled={!enabled} onClick={() => setAudio({ monitor: !audio.monitor, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(`Preview playback ${audio.monitor ? 'off' : 'on'}: ${source.name}`)).catch((error) => setStatus(String(error)))}>{audio.monitor ? 'Preview' : 'No Prev'}</button>
+                      <button className={enabled ? 'active' : ''} onClick={() => setAudio({ enabled: !enabled, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(t(enabled ? 'Audio off: {name}' : 'Audio on: {name}', { name: source.name }))).catch((error) => setStatus(String(error)))}>{enabled ? t('On') : t('Off')}</button>
+                      <button className={!muted ? 'active' : ''} disabled={!enabled} onClick={() => setAudio({ mute: !audio.mute, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(t(audio.mute ? 'Audio unmuted: {name}' : 'Audio muted: {name}', { name: source.name }))).catch((error) => setStatus(String(error)))}>{audio.mute ? t('Muted') : t('Mute')}</button>
+                      <button className={audio.monitor ? 'active' : ''} disabled={!enabled} onClick={() => setAudio({ monitor: !audio.monitor, device: audio.device || source.audio?.device || 'hw:0,2' }).then(() => setStatus(t(audio.monitor ? 'Preview playback off: {name}' : 'Preview playback on: {name}', { name: source.name }))).catch((error) => setStatus(String(error)))}>{audio.monitor ? t('Preview') : t('No Prev')}</button>
                     </div>
-                    <div className="obs-audio-filter-hint">Filters: right-click</div>
+                    <div className="obs-audio-filter-hint">{t('Filters: right-click')}</div>
                   </div>
                 )
               })}
@@ -3288,12 +3316,12 @@ export default function App() {
                   event.preventDefault()
                   setMasterAudioContextMenu({ x: event.clientX, y: event.clientY })
                 }}
-                title="Right-click for global audio filters"
+                title={t('Right-click for global audio filters')}
               >
-                <div className="obs-audio-scope">Global</div>
-                <div className="obs-audio-name static">Master</div>
+                <div className="obs-audio-scope">{t('Global')}</div>
+                <div className="obs-audio-name static">{t('Master')}</div>
                 <div className="obs-audio-db">{formatAudioDb(masterLevel.level_db)}</div>
-                <div className="obs-volume-value" title="Master volume: 100% is unchanged; 200% is +6 dB gain.">{formatAudioVolume(state.audio.master_volume)}</div>
+                <div className="obs-volume-value" title={t('Master volume: 100% is unchanged; 200% is +6 dB gain.')}>{formatAudioVolume(state.audio.master_volume)}</div>
                 <div className="obs-audio-body">
                   <input
                     className="obs-volume-fader"
@@ -3302,11 +3330,11 @@ export default function App() {
                     max="2"
                     step="0.05"
                     value={state.audio.master_volume}
-                    onChange={(event) => setMasterAudio(Number(event.target.value), state.audio.master_mute, { left_gain: state.audio.master_left_gain ?? 1, right_gain: state.audio.master_right_gain ?? 1, eq_bands: masterEqBands() }).then(() => setStatus('Master audio updated')).catch((error) => setStatus(String(error)))}
+                    onChange={(event) => setMasterAudio(Number(event.target.value), state.audio.master_mute, { left_gain: state.audio.master_left_gain ?? 1, right_gain: state.audio.master_right_gain ?? 1, eq_bands: masterEqBands() }).then(() => setStatus(t('Master audio updated'))).catch((error) => setStatus(String(error)))}
                     aria-label={`Master volume, ${formatAudioVolume(state.audio.master_volume)}`}
                   />
                   <div className="obs-meter-wrap">
-                    <div className="obs-meter-track" aria-label="Master audio level">
+                    <div className="obs-meter-track" aria-label={t('Master audio level')}>
                       <div className="obs-meter-fill" style={{ height: `${masterLevelPct}%` }} />
                       <div className="obs-meter-peak" style={{ bottom: `${masterPeakPct}%` }} />
                     </div>
@@ -3314,11 +3342,11 @@ export default function App() {
                   </div>
                 </div>
                 <div className="obs-audio-buttons">
-                  <button className={!state.audio.master_mute ? 'active' : ''} onClick={() => setMasterAudio(state.audio.master_volume, !state.audio.master_mute, { left_gain: state.audio.master_left_gain ?? 1, right_gain: state.audio.master_right_gain ?? 1, eq_bands: masterEqBands() }).then(() => setStatus('Master mute toggled')).catch((error) => setStatus(String(error)))}>
-                    {state.audio.master_mute ? 'Muted' : 'Mute'}
+                  <button className={!state.audio.master_mute ? 'active' : ''} onClick={() => setMasterAudio(state.audio.master_volume, !state.audio.master_mute, { left_gain: state.audio.master_left_gain ?? 1, right_gain: state.audio.master_right_gain ?? 1, eq_bands: masterEqBands() }).then(() => setStatus(t('Master mute toggled'))).catch((error) => setStatus(String(error)))}>
+                    {state.audio.master_mute ? t('Muted') : t('Mute')}
                   </button>
                 </div>
-                <div className="obs-audio-filter-hint">Filters: right-click</div>
+                <div className="obs-audio-filter-hint">{t('Filters: right-click')}</div>
               </div>
             </div>
           </div>
@@ -3329,11 +3357,11 @@ export default function App() {
     if (panel === 'transitions') {
       return (
         <>
-          <div className="panel-title-row"><h2>Scene Transition</h2></div>
+          <div className="panel-title-row"><h2>{t('Scene Transition')}</h2></div>
           <div className="transition-box">
-            <div className="transition-pill">Fade</div>
+            <div className="transition-pill">{t('Fade')}</div>
             <label className="source-create-row">
-              <span>Duration</span>
+              <span>{t('Duration')}</span>
               <input
                 type="number"
                 min="0"
@@ -3344,27 +3372,27 @@ export default function App() {
               />
             </label>
             <button
-              onClick={() => updateTransition('trans-fade', Math.max(0, Number(fadeDurationMs) || 0)).then(() => setStatus(`Fade duration: ${Math.max(0, Number(fadeDurationMs) || 0)} ms`)).catch((error) => setStatus(String(error)))}
+                onClick={() => updateTransition('trans-fade', Math.max(0, Number(fadeDurationMs) || 0)).then(() => setStatus(t('Fade duration: {ms} ms', { ms: Math.max(0, Number(fadeDurationMs) || 0) }))).catch((error) => setStatus(String(error)))}
             >
-              Apply Fade Duration
+              {t('Apply Fade Duration')}
             </button>
-            <small>Program: {activeScene?.name ?? 'None'}</small>
-            <small>Preview: {previewScene?.name ?? 'None'}</small>
+            <small>{t('Program: {name}', { name: activeScene?.name ?? t('None') })}</small>
+            <small>{t('Preview: {name}', { name: previewScene?.name ?? t('None') })}</small>
             {state.transitionActive && (
-              <small>Transitioning: {Math.round(state.transitionProgress * 100)}%</small>
+              <small>{t('Transitioning: {percent}%', { percent: Math.round(state.transitionProgress * 100) })}</small>
             )}
             <div className="button-row compact-row">
               <button
                 disabled={!state.previewSceneId || state.previewSceneId === state.activeSceneId}
-                onClick={() => transitionToPreview('trans-fade').then(() => setStatus('Transitioned to preview')).catch((error) => setStatus(String(error)))}
+                onClick={() => transitionToPreview('trans-fade').then(() => setStatus(t('Transitioned to preview'))).catch((error) => setStatus(String(error)))}
               >
-                Transition
+                {t('Transition')}
               </button>
               <button
                 disabled={!state.previewSceneId || state.previewSceneId === state.activeSceneId}
-                onClick={() => state.previewSceneId && setActiveScene(state.previewSceneId, 'trans-cut').then(() => setStatus('Cut to preview')).catch((error) => setStatus(String(error)))}
+                onClick={() => state.previewSceneId && setActiveScene(state.previewSceneId, 'trans-cut').then(() => setStatus(t('Cut to preview'))).catch((error) => setStatus(String(error)))}
               >
-                Cut
+                {t('Cut')}
               </button>
             </div>
           </div>
@@ -3384,8 +3412,11 @@ export default function App() {
   }
 
   function phoneSectionLabel(section: PhoneSection) {
-    if (section === 'audio') return 'Audio'
-    return section[0].toUpperCase() + section.slice(1)
+    if (section === 'scenes') return t('Scenes')
+    if (section === 'sources') return t('Sources')
+    if (section === 'audio') return t('Audio')
+    if (section === 'outputs') return t('Outputs')
+    return t('More')
   }
 
   function renderAdaptiveSection() {
@@ -3395,11 +3426,11 @@ export default function App() {
     }
     return (
       <>
-        <div className="panel-title-row"><h2>More</h2></div>
+        <div className="panel-title-row"><h2>{t('More')}</h2></div>
         <div className="control-column adaptive-more-panel">
-          <button onClick={() => openSettings()}>Settings</button>
-          <button onClick={() => refreshState().then(() => setStatus('State refreshed')).catch((error) => setStatus(String(error)))}>Refresh State</button>
-          <button onClick={() => resetWorkspaceLayout()}>Reset Desktop Layout</button>
+          <button onClick={() => openSettings()}>{t('Settings')}</button>
+          <button onClick={() => refreshState().then(() => setStatus(t('State refreshed'))).catch((error) => setStatus(String(error)))}>{t('Refresh State')}</button>
+          <button onClick={() => resetWorkspaceLayout()}>{t('Reset Desktop Layout')}</button>
           <div className="adaptive-more-group">
             {renderDock('transitions')}
           </div>
@@ -3411,7 +3442,7 @@ export default function App() {
   function renderSectionNav(className: string) {
     const sections: PhoneSection[] = ['scenes', 'sources', 'audio', 'outputs', 'more']
     return (
-      <nav className={className} aria-label="Workspace sections">
+      <nav className={className} aria-label={t('Workspace sections')}>
         {sections.map((section) => (
           <button
             key={section}
@@ -3461,7 +3492,7 @@ export default function App() {
             setDragPanel(panel)
           }}
           onDragEnd={() => setDragPanel(null)}
-        >Drag</div>
+        >{t('Drag')}</div>
         {renderDock(panel)}
       </section>
     )
@@ -3546,15 +3577,15 @@ export default function App() {
           if (data.fatal) {
             switch (data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
-                setStatus(`Preview: network error, retrying...`)
+                setStatus(t('Preview: network error, retrying...'))
                 hls?.startLoad()
                 break
               case Hls.ErrorTypes.MEDIA_ERROR:
-                setStatus(`Preview: media error, recovering...`)
+                setStatus(t('Preview: media error, recovering...'))
                 hls?.recoverMediaError()
                 break
               default:
-                setStatus(`Preview: fatal error (${data.details})`)
+                setStatus(t('Preview: fatal error ({details})', { details: data.details }))
                 hls?.destroy()
                 break
             }
@@ -3613,7 +3644,7 @@ export default function App() {
           return
         }
         event.preventDefault()
-        runCommand(`scene set-active ${scene.id}`).then(() => setStatus(`Active scene: ${scene.name}`)).catch((error) => setStatus(String(error)))
+        runCommand(`scene set-active ${scene.id}`).then(() => setStatus(t('Active scene: {name}', { name: scene.name }))).catch((error) => setStatus(String(error)))
         return
       }
 
@@ -3625,13 +3656,13 @@ export default function App() {
 
       if ((event.key === 's' || event.key === 'S') && event.shiftKey) {
         event.preventDefault()
-        captureSnapshot().then((snapshot) => setStatus(`Snapshot captured: ${snapshot.id}`)).catch((error) => setStatus(String(error)))
+        captureSnapshot().then((snapshot) => setStatus(t('Snapshot captured: {id}', { id: snapshot.id }))).catch((error) => setStatus(String(error)))
         return
       }
 
       if (event.key === 'r' || event.key === 'R') {
         event.preventDefault()
-        refreshState().then(() => setStatus('State refreshed')).catch((error) => setStatus(String(error)))
+        refreshState().then(() => setStatus(t('State refreshed'))).catch((error) => setStatus(String(error)))
       }
 
       if (event.key === 'Escape') {
@@ -3651,36 +3682,44 @@ export default function App() {
         <form className="auth-card" onSubmit={submitAuth}>
           <div className="auth-brand">
             <strong>SBS Studio</strong>
-            <span>{state.auth.setup_required ? 'Create the first administrator account' : 'Sign in to continue'}</span>
+            <span>{state.auth.setup_required ? t('Create the first administrator account') : t('Sign in to continue')}</span>
           </div>
+          <label>
+            {t('Language')}
+            <select value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
+              {LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
           {!state.auth.setup_required && (
             <div className="auth-tabs">
-              <button type="button" className={authMode === 'password' ? 'active' : ''} onClick={() => setAuthMode('password')}>Password</button>
-              <button type="button" className={authMode === 'api_key' ? 'active' : ''} onClick={() => setAuthMode('api_key')}>API Key</button>
+              <button type="button" className={authMode === 'password' ? 'active' : ''} onClick={() => setAuthMode('password')}>{t('Password')}</button>
+              <button type="button" className={authMode === 'api_key' ? 'active' : ''} onClick={() => setAuthMode('api_key')}>{t('API Key')}</button>
             </div>
           )}
           {(state.auth.setup_required || authMode === 'password') ? (
             <>
               <label>
-                Username
+                {t('Username')}
                 <input value={authUsername} onChange={(event) => setAuthUsername(event.target.value)} autoComplete="username" required />
               </label>
               <label>
-                Password
+                {t('Password')}
                 <input value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} type="password" autoComplete={state.auth.setup_required ? 'new-password' : 'current-password'} required />
               </label>
             </>
           ) : (
             <label>
-              API Key
+              {t('API Key')}
               <input value={authApiKey} onChange={(event) => setAuthApiKey(event.target.value)} type="password" autoComplete="off" required />
             </label>
           )}
           <button className="primary" disabled={authBusy} type="submit">
-            {authBusy ? 'Working...' : state.auth.setup_required ? 'Create Account' : 'Sign In'}
+            {authBusy ? t('Working...') : state.auth.setup_required ? t('Create Account') : t('Sign In')}
           </button>
-          <p className="auth-hint">{status}</p>
-          <p className="auth-hint subtle">Delete the server auth config file to reset credentials, or set it to passwordless mode for trusted local deployments.</p>
+          <p className="auth-hint">{t(status)}</p>
+          <p className="auth-hint subtle">{t('Delete the server auth config file to reset credentials, or set it to passwordless mode for trusted local deployments.')}</p>
         </form>
       </div>
     )
@@ -3700,15 +3739,15 @@ export default function App() {
               className={`instance-trigger ${instancePanelOpen ? 'active' : ''}`}
               onClick={() => setInstancePanelOpen((v) => !v)}
             >
-              <span className="instance-trigger-label">Instance</span>
-              <span className="instance-trigger-name">{currentInstance?.name ?? 'Unknown'}</span>
+              <span className="instance-trigger-label">{t('Instance')}</span>
+              <span className="instance-trigger-name">{currentInstance?.name ?? t('Unknown')}</span>
               <span className={`instance-trigger-status ${currentInstance?.running ? 'running' : 'stopped'}`} />
             </button>
             {instancePanelOpen && (
               <div id="instance-panel" className="instance-panel">
                 <div className="instance-panel-header">
-                  <span>Instances</span>
-                  <button className="instance-panel-create" onClick={() => handleCreateInstance().catch((error) => setStatus(String(error)))}>+ New</button>
+                  <span>{t('Instances')}</span>
+                  <button className="instance-panel-create" onClick={() => handleCreateInstance().catch((error) => setStatus(String(error)))}>{t('+ New')}</button>
                 </div>
                 <div className="instance-panel-list">
                   {state.instances.map((inst) => (
@@ -3725,34 +3764,34 @@ export default function App() {
                 </div>
                 {currentInstance && (
                   <div className="instance-panel-actions">
-                    <button onClick={() => handleRenameInstance().catch((error) => setStatus(String(error)))}>Rename</button>
-                    <button onClick={() => handleRestartInstance().catch((error) => setStatus(String(error)))}>Restart</button>
+                    <button onClick={() => handleRenameInstance().catch((error) => setStatus(String(error)))}>{t('Rename')}</button>
+                    <button onClick={() => handleRestartInstance().catch((error) => setStatus(String(error)))}>{t('Restart')}</button>
                     <button onClick={() => handleToggleInstanceEnabled().catch((error) => setStatus(String(error)))}>
-                      {currentInstance.desired_running ? 'Disable' : 'Enable'}
+                      {currentInstance.desired_running ? t('Disable') : t('Enable')}
                     </button>
                     <button
                       onClick={() => handleDeleteInstance().catch((error) => setStatus(String(error)))}
                       disabled={currentInstance.instance_id === 0}
                       className="instance-delete-btn"
                     >
-                      Delete
+                      {t('Delete')}
                     </button>
                   </div>
                 )}
               </div>
             )}
           </div>
-          <span className="obs-stat">Inst {state.instanceId}</span>
-          <span className={`obs-stat ${state.connectionState === 'error' ? 'warn' : ''}`}>API {state.connectionState}</span>
-          <span className={`obs-stat ${fpsWarn ? 'warn' : ''}`} title={fpsTitle}>FPS {displayFps}/{targetFps}</span>
-          <span className="obs-stat">Bitrate {Math.round(state.telemetry.bitrateKbps)} kbps</span>
-          <span className="obs-stat">Latency {Math.round(state.telemetry.latencyMs)} ms</span>
+          <span className="obs-stat">{t('Inst')} {state.instanceId}</span>
+          <span className={`obs-stat ${state.connectionState === 'error' ? 'warn' : ''}`}>{t('API')} {state.connectionState}</span>
+          <span className={`obs-stat ${fpsWarn ? 'warn' : ''}`} title={fpsTitle}>{t('FPS')} {displayFps}/{targetFps}</span>
+          <span className="obs-stat">{t('Bitrate')} {Math.round(state.telemetry.bitrateKbps)} kbps</span>
+          <span className="obs-stat">{t('Latency')} {Math.round(state.telemetry.latencyMs)} ms</span>
           {state.auth.auth_required && state.auth.authenticated && (
             <div className="api-key-tools">
-              <button onClick={() => { logoutAuth(); setStatus('Signed out') }}>Sign Out</button>
+              <button onClick={() => { logoutAuth(); setStatus(t('Signed out')) }}>{t('Sign Out')}</button>
             </div>
           )}
-          <button className="settings-btn" onClick={() => openSettings()}>Settings</button>
+          <button className="settings-btn" onClick={() => openSettings()}>{t('Settings')}</button>
         </div>
       </header>
       <main
@@ -3783,24 +3822,24 @@ export default function App() {
         <section className="obs-center-stage">
           <div className="obs-stage-toolbar">
             <div className="obs-stage-left">
-              <div className="obs-stage-title">Program</div>
-              <div className="preview-zoom-controls" aria-label="Preview zoom controls">
-                <button aria-label="Zoom out preview" onClick={() => adjustPreviewZoom(-1)} disabled={previewZoom <= PREVIEW_ZOOM_STEPS[0]}>−</button>
-                <span className="preview-zoom-value" aria-label="Preview zoom">{previewZoomLabel}</span>
-                <button aria-label="Zoom in preview" onClick={() => adjustPreviewZoom(1)} disabled={previewZoom >= PREVIEW_ZOOM_STEPS[PREVIEW_ZOOM_STEPS.length - 1]}>+</button>
-                <button aria-label="Fit preview to window" onClick={() => setPreviewZoom(1)}>Fit</button>
-                <button className={sourceBoxesVisible ? 'active' : ''} aria-label="Toggle transform guides" onClick={() => setSourceBoxesVisible((visible) => !visible)}>{sourceBoxesVisible ? 'Guides On' : 'Guides Off'}</button>
-                <button className={previewStatusOverlayVisible ? 'active' : ''} aria-label="Toggle preview status overlay" onClick={() => setPreviewStatusOverlayVisible((visible) => !visible)}>{previewStatusOverlayVisible ? 'Status On' : 'Status Off'}</button>
+              <div className="obs-stage-title">{t('Program')}</div>
+              <div className="preview-zoom-controls" aria-label={t('Preview zoom controls')}>
+                <button aria-label={t('Zoom out preview')} onClick={() => adjustPreviewZoom(-1)} disabled={previewZoom <= PREVIEW_ZOOM_STEPS[0]}>−</button>
+                <span className="preview-zoom-value" aria-label={t('Preview zoom')}>{previewZoomLabel}</span>
+                <button aria-label={t('Zoom in preview')} onClick={() => adjustPreviewZoom(1)} disabled={previewZoom >= PREVIEW_ZOOM_STEPS[PREVIEW_ZOOM_STEPS.length - 1]}>+</button>
+                <button aria-label={t('Fit preview to window')} onClick={() => setPreviewZoom(1)}>{t('Fit')}</button>
+                <button className={sourceBoxesVisible ? 'active' : ''} aria-label={t('Toggle transform guides')} onClick={() => setSourceBoxesVisible((visible) => !visible)}>{sourceBoxesVisible ? t('Guides On') : t('Guides Off')}</button>
+                <button className={previewStatusOverlayVisible ? 'active' : ''} aria-label={t('Toggle preview status overlay')} onClick={() => setPreviewStatusOverlayVisible((visible) => !visible)}>{previewStatusOverlayVisible ? t('Status On') : t('Status Off')}</button>
               </div>
             </div>
             <div className="button-row">
               <button
                 onClick={() => togglePreview().catch((error) => setStatus(String(error)))}
               >
-                {previewController ? 'Stop Preview' : 'Start Preview'}
+                {previewController ? t('Stop Preview') : t('Start Preview')}
               </button>
-              <button onClick={() => captureSnapshot().then((snapshot) => setStatus(`Snapshot captured: ${snapshot.id}`)).catch((error) => setStatus(String(error)))}>
-                Snapshot
+              <button onClick={() => captureSnapshot().then((snapshot) => setStatus(t('Snapshot captured: {id}', { id: snapshot.id }))).catch((error) => setStatus(String(error)))}>
+                {t('Snapshot')}
               </button>
             </div>
           </div>
@@ -3941,12 +3980,12 @@ export default function App() {
               {previewStatusOverlayVisible && (
                 <div className="preview-overlay">
                   <strong>{state.previewStatus.toUpperCase()}</strong>
-                  <span>{state.previewMessage}</span>
+                  <span>{t(state.previewMessage)}</span>
                   {state.selectedPreviewProfile ? (
                     <span>{state.selectedPreviewProfile.id} · {state.selectedPreviewProfile.codec.toUpperCase()} · {state.selectedPreviewProfile.transport.toUpperCase()}</span>
                   ) : null}
                   {state.lastSnapshot ? (
-                    <a href={state.lastSnapshot.url} target="_blank" rel="noreferrer">Open Snapshot</a>
+                    <a href={state.lastSnapshot.url} target="_blank" rel="noreferrer">{t('Open Snapshot')}</a>
                   ) : null}
                 </div>
               )}
@@ -3959,9 +3998,9 @@ export default function App() {
               style={{ left: contextMenu.x, top: contextMenu.y }}
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="ctx-group-label">Transform</div>
-              <button onClick={async () => { await updateSceneItemTransform(state.activeSceneId!, contextMenu.itemId, { position_x: 0, position_y: 0, width: 640, height: 360 }).catch(() => {}); setContextMenu(null) }}>Reset Transform</button>
-              <button onClick={async () => { await updateSceneItemTransform(state.activeSceneId!, contextMenu.itemId, { position_x: 0, position_y: 0, width: canvasW, height: canvasH }).catch(() => {}); setContextMenu(null) }}>Fit to Screen</button>
+              <div className="ctx-group-label">{t('Transform')}</div>
+              <button onClick={async () => { await updateSceneItemTransform(state.activeSceneId!, contextMenu.itemId, { position_x: 0, position_y: 0, width: 640, height: 360 }).catch(() => {}); setContextMenu(null) }}>{t('Reset Transform')}</button>
+              <button onClick={async () => { await updateSceneItemTransform(state.activeSceneId!, contextMenu.itemId, { position_x: 0, position_y: 0, width: canvasW, height: canvasH }).catch(() => {}); setContextMenu(null) }}>{t('Fit to Screen')}</button>
               <button onClick={async () => {
                 const scene = (state.scenes as Record<string, any>)[state.activeSceneId!]
                 const item = (scene?.items as any[])?.find((i: any) => i.id === contextMenu.itemId)
@@ -3970,21 +4009,21 @@ export default function App() {
                   await updateSceneItemTransform(state.activeSceneId!, contextMenu.itemId, { ...t, position_x: Math.round((canvasW - (t.width || 640)) / 2), position_y: Math.round((canvasH - (t.height || 360)) / 2) }).catch(() => {})
                 }
                 setContextMenu(null)
-              }}>Center on Canvas</button>
+              }}>{t('Center on Canvas')}</button>
               <div className="ctx-separator" />
-              <div className="ctx-group-label">Order</div>
-              <button onClick={async () => { await moveSceneItem(contextMenu.itemId, 'top').catch(() => {}); setContextMenu(null) }}>Move to Top</button>
-              <button onClick={async () => { await moveSceneItem(contextMenu.itemId, 'up').catch(() => {}); setContextMenu(null) }}>Move Up</button>
-              <button onClick={async () => { await moveSceneItem(contextMenu.itemId, 'down').catch(() => {}); setContextMenu(null) }}>Move Down</button>
-              <button onClick={async () => { await moveSceneItem(contextMenu.itemId, 'bottom').catch(() => {}); setContextMenu(null) }}>Move to Bottom</button>
+              <div className="ctx-group-label">{t('Order')}</div>
+              <button onClick={async () => { await moveSceneItem(contextMenu.itemId, 'top').catch(() => {}); setContextMenu(null) }}>{t('Move to Top')}</button>
+              <button onClick={async () => { await moveSceneItem(contextMenu.itemId, 'up').catch(() => {}); setContextMenu(null) }}>{t('Move Up')}</button>
+              <button onClick={async () => { await moveSceneItem(contextMenu.itemId, 'down').catch(() => {}); setContextMenu(null) }}>{t('Move Down')}</button>
+              <button onClick={async () => { await moveSceneItem(contextMenu.itemId, 'bottom').catch(() => {}); setContextMenu(null) }}>{t('Move to Bottom')}</button>
               <div className="ctx-separator" />
               <button onClick={async () => {
                 const scene = (state.scenes as Record<string, any>)[state.activeSceneId!]
                 const item = (scene?.items as any[])?.find((i: any) => i.id === contextMenu.itemId)
                 if (item) await updateSceneItem(state.activeSceneId!, contextMenu.itemId, { visible: !item.visible }).catch(() => {})
                 setContextMenu(null)
-              }}>Toggle Visibility</button>
-              <button onClick={async () => { await removeSceneItem(state.activeSceneId!, contextMenu.itemId).catch(() => {}); selectSceneItem(null); setContextMenu(null) }}>Delete</button>
+              }}>{t('Toggle Visibility')}</button>
+              <button onClick={async () => { await removeSceneItem(state.activeSceneId!, contextMenu.itemId).catch(() => {}); selectSceneItem(null); setContextMenu(null) }}>{t('Delete')}</button>
             </div>
           )}
 
@@ -3997,17 +4036,17 @@ export default function App() {
                 style={{ left: sourceContextMenu.x, top: sourceContextMenu.y }}
                 onClick={(event) => event.stopPropagation()}
               >
-                <div className="ctx-group-label">Source</div>
-                <button onClick={() => openSourceFilters(source.id)}>Effect Filters...</button>
+                <div className="ctx-group-label">{t('Source')}</div>
+                <button onClick={() => openSourceFilters(source.id)}>{t('Effect Filters...')}</button>
                 <div className="ctx-separator" />
                 <button onClick={() => {
                   openSourceEditor(source).catch((error) => setStatus(String(error)))
                   setSourceContextMenu(null)
-                }}>Edit Source</button>
+                }}>{t('Edit Source')}</button>
                 <button onClick={() => {
                   setSourceContextMenu(null)
                   handleRenameSource(source.id, source.name).catch((error) => setStatus(String(error)))
-                }}>Rename</button>
+                }}>{t('Rename')}</button>
               </div>
             )
           })()}
@@ -4021,17 +4060,17 @@ export default function App() {
                 style={{ left: sceneContextMenu.x, top: sceneContextMenu.y }}
                 onClick={(event) => event.stopPropagation()}
               >
-                <div className="ctx-group-label">Scene</div>
-                <button onClick={() => openSceneFilters(scene.id)}>Effect Filters...</button>
+                <div className="ctx-group-label">{t('Scene')}</div>
+                <button onClick={() => openSceneFilters(scene.id)}>{t('Effect Filters...')}</button>
                 <div className="ctx-separator" />
                 <button onClick={() => {
                   setSceneContextMenu(null)
-                  runCommand(`scene set-active ${scene.id}`).then(() => setStatus(`Active scene: ${scene.name}`)).catch((error) => setStatus(String(error)))
-                }}>Make Active</button>
+                  runCommand(`scene set-active ${scene.id}`).then(() => setStatus(t('Active scene: {name}', { name: scene.name }))).catch((error) => setStatus(String(error)))
+                }}>{t('Make Active')}</button>
                 <button onClick={() => {
                   setSceneContextMenu(null)
-                  removeScene(scene.id).then(() => setStatus(`Removed scene: ${scene.name}`)).catch((error) => setStatus(String(error)))
-                }} disabled={sceneEntries.length <= 1}>Delete</button>
+                  removeScene(scene.id).then(() => setStatus(t('Removed scene: {name}', { name: scene.name }))).catch((error) => setStatus(String(error)))
+                }} disabled={sceneEntries.length <= 1}>{t('Delete')}</button>
               </div>
             )
           })()}
@@ -4049,10 +4088,10 @@ export default function App() {
                 style={{ left: audioContextMenu.x, top: audioContextMenu.y }}
                 onClick={(event) => event.stopPropagation()}
               >
-                <div className="ctx-group-label">Audio Filters</div>
-                <button onClick={() => openAudioFilter('channel_gain')}>Channel Gain</button>
-                <button onClick={() => openAudioFilter('delay')}>Delay</button>
-                <button onClick={() => openAudioFilter('eq')}>Equalizer</button>
+                <div className="ctx-group-label">{t('Audio Filters')}</div>
+                <button onClick={() => openAudioFilter('channel_gain')}>{t('Channel Gain')}</button>
+                <button onClick={() => openAudioFilter('delay')}>{t('Delay')}</button>
+                <button onClick={() => openAudioFilter('eq')}>{t('Equalizer')}</button>
                 <div className="ctx-separator" />
                 <div className="ctx-menu-note">{source.name}</div>
               </div>
@@ -4065,11 +4104,11 @@ export default function App() {
               style={{ left: masterAudioContextMenu.x, top: masterAudioContextMenu.y }}
               onClick={(event) => event.stopPropagation()}
             >
-              <div className="ctx-group-label">Global Audio Filters</div>
-              <button onClick={() => { setMasterAudioFilterEditor('channel_gain'); setMasterAudioContextMenu(null) }}>Channel Gain</button>
-              <button onClick={() => { setMasterAudioFilterEditor('eq'); setMasterAudioContextMenu(null) }}>Equalizer</button>
+              <div className="ctx-group-label">{t('Global Audio Filters')}</div>
+              <button onClick={() => { setMasterAudioFilterEditor('channel_gain'); setMasterAudioContextMenu(null) }}>{t('Channel Gain')}</button>
+              <button onClick={() => { setMasterAudioFilterEditor('eq'); setMasterAudioContextMenu(null) }}>{t('Equalizer')}</button>
               <div className="ctx-separator" />
-              <div className="ctx-menu-note">Master Output</div>
+              <div className="ctx-menu-note">{t('Master Output')}</div>
             </div>
           )}
         </section>
@@ -4078,7 +4117,7 @@ export default function App() {
           <section
             className="panel adaptive-panel-shell"
             role="region"
-            aria-label={`${phoneSectionLabel(phoneSection)} workspace panel`}
+            aria-label={`${phoneSectionLabel(phoneSection)} ${t('workspace panel')}`}
           >
             <div className="adaptive-panel-grip" aria-hidden="true" />
             {workspaceMode === 'tablet' && renderSectionNav('tablet-section-nav')}
@@ -4102,16 +4141,16 @@ export default function App() {
 
       <footer className="obs-statusbar">
         <div className="obs-status-items">
-          <span>CPU {Math.round(state.telemetry.cpuUsage)}%</span>
-          <span>GPU {Math.round(state.telemetry.gpuUsage)}%</span>
-          <span>FPS {displayFps}/{targetFps}</span>
-          <span>Latency {Math.round(state.telemetry.latencyMs)} ms</span>
-          <span>{fpsWarn ? 'Pipeline Slow' : 'Pipeline Stable'}</span>
-          <span>Shortcuts: 1-9 scenes, P preview, Shift+S snapshot, R refresh</span>
+          <span>{t('CPU')} {Math.round(state.telemetry.cpuUsage)}%</span>
+          <span>{t('GPU')} {Math.round(state.telemetry.gpuUsage)}%</span>
+          <span>{t('FPS')} {displayFps}/{targetFps}</span>
+          <span>{t('Latency')} {Math.round(state.telemetry.latencyMs)} ms</span>
+          <span>{fpsWarn ? t('Pipeline Slow') : t('Pipeline Stable')}</span>
+          <span>{t('Shortcuts: 1-9 scenes, P preview, Shift+S snapshot, R refresh')}</span>
         </div>
         <div className="command-row obs-cli-row">
           <input value={command} onChange={(event) => setCommand(event.target.value)} />
-          <button onClick={() => runCommand(command).then(() => setStatus(`Executed: ${command}`)).catch((error) => setStatus(String(error)))}>Run</button>
+          <button onClick={() => runCommand(command).then(() => setStatus(t('Executed: {command}', { command }))).catch((error) => setStatus(String(error)))}>{t('Run')}</button>
         </div>
       </footer>
 
