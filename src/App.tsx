@@ -740,6 +740,39 @@ export default function App() {
   const activeFilterIds = `${effectiveFilterTarget?.kind ?? 'none'}:${effectiveFilterTarget?.id ?? ''}:${activeFilters.map((filter: any) => filter.id).join('|')}`
   const selectedFilter = activeFilters.find((filter: any) => filter.id === selectedFilterId) ?? activeFilters[0] ?? null
 
+  function canvasPointFromClient(clientX: number, clientY: number) {
+    const overlay = previewWrapperRef.current?.querySelector('.source-overlay') as HTMLElement | null
+    if (!overlay) return null
+    const rect = overlay.getBoundingClientRect()
+    if (rect.width <= 0 || rect.height <= 0) return null
+    return {
+      x: ((clientX - rect.left) / rect.width) * canvasW,
+      y: ((clientY - rect.top) / rect.height) * canvasH,
+    }
+  }
+
+  function sceneItemContainsCanvasPoint(item: any, point: { x: number; y: number }) {
+    if (!item || item.visible === false) return false
+    const transform = item.transform || {}
+    const x = Number(transform.position_x ?? 0)
+    const y = Number(transform.position_y ?? 0)
+    const width = Number(transform.width ?? 640)
+    const height = Number(transform.height ?? 360)
+    if (![x, y, width, height].every(Number.isFinite) || width <= 0 || height <= 0) return false
+    return point.x >= x && point.x <= x + width && point.y >= y && point.y <= y + height
+  }
+
+  function preferredContextItemId(clientX: number, clientY: number, fallbackItemId: string) {
+    const selectedItem = state.selectedSceneItemId
+      ? activeSceneItems.find((item: any) => item.id === state.selectedSceneItemId)
+      : null
+    const point = selectedItem ? canvasPointFromClient(clientX, clientY) : null
+    if (selectedItem && point && sceneItemContainsCanvasPoint(selectedItem, point)) {
+      return selectedItem.id
+    }
+    return fallbackItemId
+  }
+
   function audioMeterPercent(value: unknown) {
     const db = Number(value)
     if (!Number.isFinite(db) || db <= -90) return 0
@@ -3890,7 +3923,7 @@ export default function App() {
                   const bbox = target.closest('.source-bbox') as HTMLElement | null
                   if (bbox) {
                     e.preventDefault()
-                    const itemId = bbox.dataset.itemId!
+                    const itemId = preferredContextItemId(e.clientX, e.clientY, bbox.dataset.itemId!)
                     selectSceneItem(itemId)
                     setContextMenu({ x: e.clientX, y: e.clientY, itemId })
                   }
@@ -3900,8 +3933,8 @@ export default function App() {
                   if (target.classList.contains('resize-handle')) return
                   const bbox = target.closest('.source-bbox') as HTMLElement | null
                   if (bbox) {
-                    const itemId = bbox.dataset.itemId!
                     const touch = e.touches[0]
+                    const itemId = preferredContextItemId(touch.clientX, touch.clientY, bbox.dataset.itemId!)
                      longPressRef.current = { timer: window.setTimeout(() => {
                        selectSceneItem(itemId)
                        setContextMenu({ x: touch.clientX, y: touch.clientY, itemId })
