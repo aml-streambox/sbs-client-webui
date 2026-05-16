@@ -135,6 +135,7 @@ select {
   background: rgba(30, 30, 30, 0.96);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
 }
+.setup-card { width: min(480px, 100%); }
 .auth-brand { display: grid; gap: 4px; margin-bottom: 4px; }
 .auth-brand strong { font-size: 22px; }
 .auth-brand span, .auth-hint { color: var(--muted); }
@@ -144,6 +145,16 @@ select {
 .auth-tabs button.active { background: var(--accent); border-color: var(--accent-light); }
 .auth-hint { font-size: 12px; line-height: 1.4; }
 .auth-hint.subtle { color: #777; }
+.setup-passwordless-note {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid #6d4d1b;
+  border-radius: 6px;
+  background: #2b250f;
+  color: #f0d98a;
+}
+.setup-passwordless-note span { color: #e2c66f; font-size: 12px; line-height: 1.45; }
 .api-key-tools { display: flex; gap: 4px; align-items: center; }
 .api-key-tools input { width: 120px; }
 .settings-check {

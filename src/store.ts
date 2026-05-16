@@ -358,8 +358,8 @@ export async function connectStore() {
   await api.connect()
 }
 
-export async function setupAuth(username: string, password: string) {
-  const result = await api.rpc<AuthStatus>('auth.setup', { username, password })
+export async function setupAuth(username: string, password: string, passwordless = false) {
+  const result = await api.rpc<AuthStatus>('auth.setup', passwordless ? { passwordless: true } : { username, password })
   applyAuthStatus(result, true)
   await syncAfterConnect()
   await listApiKeys()

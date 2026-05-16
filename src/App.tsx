@@ -129,6 +129,7 @@ export default function App() {
   const [authPassword, setAuthPassword] = useState('')
   const [authApiKey, setAuthApiKey] = useState('')
   const [authMode, setAuthMode] = useState<'password' | 'api_key'>('password')
+  const [setupMode, setSetupMode] = useState<'password' | 'passwordless'>('password')
   const [authBusy, setAuthBusy] = useState(false)
   const [newApiKeyName, setNewApiKeyName] = useState('')
   const [newApiKey, setNewApiKey] = useState('')
@@ -412,10 +413,10 @@ export default function App() {
   async function submitAuth(event: FormEvent) {
     event.preventDefault()
     setAuthBusy(true)
-    setStatus(t('Authenticating...'))
+    setStatus(state.auth.setup_required ? t('Setting up SBS...') : t('Authenticating...'))
     try {
       if (state.auth.setup_required) {
-        await setupAuth(authUsername.trim(), authPassword)
+        await setupAuth(authUsername.trim(), authPassword, setupMode === 'passwordless')
       } else if (authMode === 'api_key') {
         await loginApiKey(authApiKey.trim())
       } else {
@@ -3704,13 +3705,13 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [previewController, sceneEntries])
 
-  if (state.connected && state.auth.checked && state.auth.auth_required && !state.auth.authenticated) {
+  if (state.connected && state.auth.checked && state.auth.setup_required && !state.auth.authenticated) {
     return (
-      <div className="auth-shell">
-        <form className="auth-card" onSubmit={submitAuth}>
+      <div className="auth-shell setup-shell">
+        <form className="auth-card setup-card" onSubmit={submitAuth}>
           <div className="auth-brand">
-            <strong>SBS Studio</strong>
-            <span>{state.auth.setup_required ? t('Create the first administrator account') : t('Sign in to continue')}</span>
+            <strong>{t('First Boot Setup')}</strong>
+            <span>{t('Initialize this SBS server before using the studio.')}</span>
           </div>
           <label>
             {t('Language')}
@@ -3720,13 +3721,11 @@ export default function App() {
               ))}
             </select>
           </label>
-          {!state.auth.setup_required && (
-            <div className="auth-tabs">
-              <button type="button" className={authMode === 'password' ? 'active' : ''} onClick={() => setAuthMode('password')}>{t('Password')}</button>
-              <button type="button" className={authMode === 'api_key' ? 'active' : ''} onClick={() => setAuthMode('api_key')}>{t('API Key')}</button>
-            </div>
-          )}
-          {(state.auth.setup_required || authMode === 'password') ? (
+          <div className="auth-tabs">
+            <button type="button" className={setupMode === 'password' ? 'active' : ''} onClick={() => setSetupMode('password')}>{t('Username / Password')}</button>
+            <button type="button" className={setupMode === 'passwordless' ? 'active' : ''} onClick={() => setSetupMode('passwordless')}>{t('Passwordless')}</button>
+          </div>
+          {setupMode === 'password' ? (
             <>
               <label>
                 {t('Username')}
@@ -3734,7 +3733,54 @@ export default function App() {
               </label>
               <label>
                 {t('Password')}
-                <input value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} type="password" autoComplete={state.auth.setup_required ? 'new-password' : 'current-password'} required />
+                <input value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} type="password" autoComplete="new-password" required />
+              </label>
+              <p className="auth-hint subtle">{t('Use a username and password when this device is reachable from shared or untrusted networks.')}</p>
+            </>
+          ) : (
+            <div className="setup-passwordless-note">
+              <strong>{t('Passwordless Mode')}</strong>
+              <span>{t('Anyone who can reach this WebUI or API can control SBS. Use only on trusted local networks.')}</span>
+            </div>
+          )}
+          <button className="primary" disabled={authBusy} type="submit">
+            {authBusy ? t('Working...') : setupMode === 'passwordless' ? t('Enable Passwordless Mode') : t('Create Account')}
+          </button>
+          <p className="auth-hint">{t(status)}</p>
+        </form>
+      </div>
+    )
+  }
+
+  if (state.connected && state.auth.checked && state.auth.auth_required && !state.auth.authenticated) {
+    return (
+      <div className="auth-shell">
+        <form className="auth-card" onSubmit={submitAuth}>
+          <div className="auth-brand">
+            <strong>SBS Studio</strong>
+            <span>{t('Sign in to continue')}</span>
+          </div>
+          <label>
+            {t('Language')}
+            <select value={language} onChange={(event) => setLanguage(event.target.value as Language)}>
+              {LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <div className="auth-tabs">
+            <button type="button" className={authMode === 'password' ? 'active' : ''} onClick={() => setAuthMode('password')}>{t('Password')}</button>
+            <button type="button" className={authMode === 'api_key' ? 'active' : ''} onClick={() => setAuthMode('api_key')}>{t('API Key')}</button>
+          </div>
+          {authMode === 'password' ? (
+            <>
+              <label>
+                {t('Username')}
+                <input value={authUsername} onChange={(event) => setAuthUsername(event.target.value)} autoComplete="username" required />
+              </label>
+              <label>
+                {t('Password')}
+                <input value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} type="password" autoComplete="current-password" required />
               </label>
             </>
           ) : (
@@ -3744,7 +3790,7 @@ export default function App() {
             </label>
           )}
           <button className="primary" disabled={authBusy} type="submit">
-            {authBusy ? t('Working...') : state.auth.setup_required ? t('Create Account') : t('Sign In')}
+            {authBusy ? t('Working...') : t('Sign In')}
           </button>
           <p className="auth-hint">{t(status)}</p>
           <p className="auth-hint subtle">{t('Delete the server auth config file to reset credentials, or set it to passwordless mode for trusted local deployments.')}</p>
