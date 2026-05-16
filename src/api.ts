@@ -212,13 +212,14 @@ export function defaultApiUrl(): string {
   }
   const host = window.location.hostname || '127.0.0.1'
   const port = Number(window.location.port)
+  const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
   if (port === 10086) {
-    return `ws://${host}:10086/api/v1/ws`
+    return `${wsProtocol}://${host}:10086/api/v1/ws`
   }
   if (port === 10101) {
-    return `ws://${host}:10100/api`
+    return `${wsProtocol}://${host}:10100/api`
   }
-  return `ws://${host}:10100/api`
+  return `${wsProtocol}://${host}:10100/api`
 }
 
 export function defaultInstanceId(): number {

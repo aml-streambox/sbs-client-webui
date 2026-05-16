@@ -474,8 +474,14 @@ export async function runCommand(command: string) {
   return api.rpc('command.execute', { command })
 }
 
+function makeClientId(prefix: string, name: string) {
+  const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'item'
+  const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  return `${prefix}-${slug}-${suffix}`
+}
+
 export async function createScene(name: string) {
-  const id = `scene-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || Date.now()}`
+  const id = makeClientId('scene', name)
   return api.rpc('scene.create', { id, name })
 }
 
@@ -508,7 +514,7 @@ export async function updateTransition(transitionId: string, durationMs: number)
 }
 
 export async function createSource(name: string, type: string, config?: Record<string, string>) {
-  const id = `source-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || Date.now()}`
+  const id = makeClientId('source', name)
   const params: Record<string, unknown> = { id, name, type }
   if (config) {
     params.config = config
@@ -549,7 +555,7 @@ export async function uploadSourceAsset(assetKind: 'image' | 'media' | 'font', f
 }
 
 export async function createOutput(name: string, encoder?: Record<string, unknown>) {
-  const id = `output-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || Date.now()}`
+  const id = makeClientId('output', name)
   return api.rpc('output.create', { id, name, encoder })
 }
 
@@ -886,16 +892,6 @@ export async function captureSnapshot() {
   }
   emit()
   return state.lastSnapshot
-}
-
-export async function setSourceAudio(sourceId: string, volume: number, mute: boolean, monitor: boolean, device = 'hw:0,2', enabled = true, extra: Record<string, unknown> = {}) {
-  const result = await api.rpc<any>('audio.setSource', { source_id: sourceId, volume, mute, monitor, device, enabled, ...extra })
-  state.sources = {
-    ...state.sources,
-    [sourceId]: result,
-  }
-  emit()
-  return result
 }
 
 export async function setSceneItemAudio(sceneId: string, itemId: string, volume: number, mute: boolean, monitor: boolean, device = 'hw:0,2', enabled = true, extra: Record<string, unknown> = {}) {

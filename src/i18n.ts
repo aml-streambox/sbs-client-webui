@@ -277,6 +277,7 @@ const zh: Record<string, string> = {
   'No API keys have been created.': '还没有创建 API 密钥。',
   'Import replaces the active SBS scenes, sources, outputs, canvas, and audio settings, then restarts affected runtime pipelines.': '导入会覆盖当前场景、来源、输出、画布和音频设置，并重启相关运行管线。',
   'Export Configuration': '导出配置',
+  'Exported configurations may include local paths and streaming credentials. Do not share them publicly.': '导出的配置可能包含本地路径和推流凭据，请勿公开分享。',
   'Download': '下载',
   'Export JSON': '导出 JSON',
   'Import Configuration': '导入配置',
@@ -445,10 +446,6 @@ const zh: Record<string, string> = {
   'Effect Filters...': '效果滤镜…',
   'Edit Source': '编辑来源',
   'Make Active': '切到此场景',
-}
-
-export function normalizeLanguage(value: unknown): Language {
-  return value === 'zh' ? 'zh' : 'en'
 }
 
 export function loadLanguage(): Language {

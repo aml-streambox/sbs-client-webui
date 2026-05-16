@@ -146,23 +146,6 @@ select {
 .auth-hint.subtle { color: #777; }
 .api-key-tools { display: flex; gap: 4px; align-items: center; }
 .api-key-tools input { width: 120px; }
-.api-key-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #51400f;
-  background: #2b250f;
-  color: #f0d98a;
-}
-.api-key-banner code {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #fff2b0;
-}
 .settings-check {
   display: flex;
   align-items: center;
@@ -1555,7 +1538,8 @@ select {
   min-height: 30px;
 }
 .obs-status-items { display: flex; gap: 12px; }
-.obs-cli-row { min-width: 360px; display: flex; gap: 4px; }
+/* Temporarily hidden until the footer CLI is redesigned and maintained again. */
+.obs-cli-row { min-width: 360px; display: none; gap: 4px; }
 .obs-cli-row input { flex: 1; padding: 3px 8px; font-size: 11px; }
 .obs-cli-row button { padding: 3px 10px; font-size: 11px; }
 

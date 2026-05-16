@@ -183,8 +183,8 @@ export default function App() {
     itemId: string
     startMouseX: number
     startMouseY: number
-    startPositonX: number
-    startPositonY: number
+    startPositionX: number
+    startPositionY: number
     startWidth: number
     startHeight: number
     handle?: string
@@ -330,8 +330,8 @@ export default function App() {
     const sy = canvasH / pr.height
     const bbox = document.querySelector(`.source-bbox[data-item-id="${drag.itemId}"]`) as HTMLElement | null
     if (drag.type === 'move') {
-      let newPx = drag.startPositonX + dx * sx
-      let newPy = drag.startPositonY + dy * sy
+      let newPx = drag.startPositionX + dx * sx
+      let newPy = drag.startPositionY + dy * sy
       const newW = drag.startWidth
       const newH = drag.startHeight
       const snapped = snapToCanvas(newPx, newPy, newW, newH)
@@ -346,16 +346,16 @@ export default function App() {
 
     if (drag.type === 'resize' && drag.handle) {
       const h = drag.handle
-      let newPx = drag.startPositonX
-      let newPy = drag.startPositonY
+      let newPx = drag.startPositionX
+      let newPy = drag.startPositionY
       let newW = drag.startWidth
       let newH = drag.startHeight
       const dxC = dx * sx
       const dyC = dy * sy
 
       if (h.includes('e')) newW = Math.max(MIN_SIZE, drag.startWidth + dxC)
-      if (h.includes('w')) { newW = Math.max(MIN_SIZE, drag.startWidth - dxC); newPx = drag.startPositonX + drag.startWidth - newW }
-      if (h.includes('n')) { newH = Math.max(MIN_SIZE, drag.startHeight - dyC); newPy = drag.startPositonY + drag.startHeight - newH }
+      if (h.includes('w')) { newW = Math.max(MIN_SIZE, drag.startWidth - dxC); newPx = drag.startPositionX + drag.startWidth - newW }
+      if (h.includes('n')) { newH = Math.max(MIN_SIZE, drag.startHeight - dyC); newPy = drag.startPositionY + drag.startHeight - newH }
       if (h.includes('s')) newH = Math.max(MIN_SIZE, drag.startHeight + dyC)
 
       const snapped = snapToCanvas(newPx, newPy, newW, newH)
@@ -380,8 +380,8 @@ export default function App() {
     if (!item) return
     if (drag.type === 'move') {
       const d = drag as any
-      const newPx = d._newPx ?? drag.startPositonX
-      const newPy = d._newPy ?? drag.startPositonY
+      const newPx = d._newPx ?? drag.startPositionX
+      const newPy = d._newPy ?? drag.startPositionY
       await updateSceneItemTransform(state.activeSceneId!, drag.itemId, {
         ...item.transform,
         position_x: Math.round(newPx),
@@ -389,8 +389,8 @@ export default function App() {
       }).catch(() => {})
     } else if (drag.type === 'resize') {
       const d = drag as any
-      const newPx = d._newPx ?? drag.startPositonX
-      const newPy = d._newPy ?? drag.startPositonY
+      const newPx = d._newPx ?? drag.startPositionX
+      const newPy = d._newPy ?? drag.startPositionY
       const newW = d._newW ?? drag.startWidth
       const newH = d._newH ?? drag.startHeight
       await updateSceneItemTransform(state.activeSceneId!, drag.itemId, {
@@ -636,12 +636,6 @@ export default function App() {
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
-
-  useEffect(() => {
-    if (instancePanelOpen) {
-      return
-    }
-  }, [state.instanceId, instancePanelOpen])
 
   useEffect(() => {
     if (!instancePanelOpen) return
@@ -2400,6 +2394,7 @@ export default function App() {
         <>
           <div className="settings-warning">{t('Import replaces the active SBS scenes, sources, outputs, canvas, and audio settings, then restarts affected runtime pipelines.')}</div>
           <div className="settings-section-title">{t('Export Configuration')}</div>
+          <div className="settings-warning">{t('Exported configurations may include local paths and streaming credentials. Do not share them publicly.')}</div>
           <div className="settings-row">
             <label>{t('Download')}</label>
             <div className="settings-inline">
@@ -3905,8 +3900,8 @@ export default function App() {
                       itemId,
                       startMouseX: e.clientX,
                       startMouseY: e.clientY,
-                      startPositonX: item.transform?.position_x ?? 0,
-                      startPositonY: item.transform?.position_y ?? 0,
+                      startPositionX: item.transform?.position_x ?? 0,
+                      startPositionY: item.transform?.position_y ?? 0,
                       startWidth: item.transform?.width ?? 640,
                       startHeight: item.transform?.height ?? 360,
                     }
@@ -3935,11 +3930,11 @@ export default function App() {
                   if (bbox) {
                     const touch = e.touches[0]
                     const itemId = preferredContextItemId(touch.clientX, touch.clientY, bbox.dataset.itemId!)
-                     longPressRef.current = { timer: window.setTimeout(() => {
-                       selectSceneItem(itemId)
-                       setContextMenu({ x: touch.clientX, y: touch.clientY, itemId })
-                       longPressRef.current = null
-                     }, 500), itemId, x: touch.clientX, y: touch.clientY }
+                    longPressRef.current = { timer: window.setTimeout(() => {
+                      selectSceneItem(itemId)
+                      setContextMenu({ x: touch.clientX, y: touch.clientY, itemId })
+                      longPressRef.current = null
+                    }, 500), itemId, x: touch.clientX, y: touch.clientY }
                   }
                 }}
                 onTouchMove={() => {
@@ -3960,7 +3955,7 @@ export default function App() {
                   const scene = state.activeSceneId ? (state.scenes as Record<string, any>)[state.activeSceneId] : null
                   if (!scene?.items) return null
                   return (scene.items as any[]).map((item: any) => {
-                    if (!item.visible) return null
+                    if (item.visible === false) return null
                     const t = item.transform || {}
                     const mapped = canvasToPreviewLocal(t.position_x || 0, t.position_y || 0, t.width || 640, t.height || 360)
                     const isSelected = state.selectedSceneItemId === item.id
@@ -3977,8 +3972,8 @@ export default function App() {
       itemId: state.selectedSceneItemId,
       startMouseX: e.clientX,
       startMouseY: e.clientY,
-      startPositonX: item.transform?.position_x ?? 0,
-      startPositonY: item.transform?.position_y ?? 0,
+      startPositionX: item.transform?.position_x ?? 0,
+      startPositionY: item.transform?.position_y ?? 0,
       startWidth: item.transform?.width ?? 640,
       startHeight: item.transform?.height ?? 360,
       handle,
@@ -4053,7 +4048,7 @@ export default function App() {
               <button onClick={async () => {
                 const scene = (state.scenes as Record<string, any>)[state.activeSceneId!]
                 const item = (scene?.items as any[])?.find((i: any) => i.id === contextMenu.itemId)
-                if (item) await updateSceneItem(state.activeSceneId!, contextMenu.itemId, { visible: !item.visible }).catch(() => {})
+                if (item) await updateSceneItem(state.activeSceneId!, contextMenu.itemId, { visible: item.visible === false }).catch(() => {})
                 setContextMenu(null)
               }}>{t('Toggle Visibility')}</button>
               <button onClick={async () => { await removeSceneItem(state.activeSceneId!, contextMenu.itemId).catch(() => {}); selectSceneItem(null); setContextMenu(null) }}>{t('Delete')}</button>
