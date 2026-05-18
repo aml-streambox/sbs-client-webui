@@ -203,6 +203,26 @@ async function installMockSocket(page: Page, scenario = 'default') {
       })
     }
 
+    if (arg.scenario === 'output-health') {
+      state.output_groups = {
+        'rtmp-good': { id: 'rtmp-good', name: 'RTMP Good', state: 'running', encoder: { sink_type: 'rtmp' } },
+        'rtmp-loss': { id: 'rtmp-loss', name: 'RTMP Loss', state: 'running', encoder: { sink_type: 'rtmp' } },
+        'rtmp-down': { id: 'rtmp-down', name: 'RTMP Down', state: 'running', encoder: { sink_type: 'rtmp' } },
+        'srt-down': { id: 'srt-down', name: 'SRT Down', state: 'running', encoder: { sink_type: 'srt' } },
+      }
+      ;(state as any).output_health = {
+        'rtmp-good': { sink_type: 'rtmp', status: 'connected', connected: true, degraded: false, reason: 'RTMP sink streaming' },
+        'rtmp-loss': { sink_type: 'rtmp', status: 'degraded', connected: true, degraded: true, reason: 'RTMP sink warnings detected' },
+        'rtmp-down': { sink_type: 'rtmp', status: 'disconnected', connected: false, degraded: false, reason: 'RTMP endpoint unreachable' },
+        'srt-down': { sink_type: 'srt', status: 'disconnected', connected: false, degraded: false, reason: 'waiting for SRT caller' },
+      }
+    }
+
+    const stateResponse = () => ({
+      ...state,
+      output_health: (state as any).output_health,
+    })
+
     class MockWebSocket {
       static OPEN = 1
       readyState = 1
@@ -240,7 +260,7 @@ async function installMockSocket(page: Page, scenario = 'default') {
         }
 
         if (method === 'system.getState') {
-          respond({ jsonrpc: '2.0', id: request.id, result: state })
+          respond({ jsonrpc: '2.0', id: request.id, result: stateResponse() })
           return
         }
 
@@ -620,6 +640,66 @@ test('zooms preview canvas from toolbar controls', async ({ page }) => {
   await expect(zoomValue).toHaveText('100%')
 })
 
+test('fits aligned preview video to canvas overlay bounds', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  await expect(page.locator('.preview-screen')).toBeVisible()
+  const fit = await page.evaluate(async () => {
+    const video = document.querySelector<HTMLVideoElement>('#preview-video')
+    const overlay = document.querySelector<HTMLElement>('.source-overlay')
+    if (!video || !overlay) return { ok: false, reason: 'missing preview nodes' }
+
+    const canvas = document.createElement('canvas')
+    canvas.width = 640
+    canvas.height = 368
+    const ctx = canvas.getContext('2d')
+    ctx!.fillStyle = '#00ff00'
+    ctx!.fillRect(0, 0, canvas.width, canvas.height)
+    video.srcObject = canvas.captureStream(30)
+    await video.play()
+    await new Promise<void>((resolve) => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) resolve()
+      else video.addEventListener('loadedmetadata', () => resolve(), { once: true })
+    })
+
+    const videoRect = video.getBoundingClientRect()
+    const overlayRect = overlay.getBoundingClientRect()
+    const style = window.getComputedStyle(video)
+    const renderedRect = style.objectFit === 'fill'
+      ? videoRect
+      : (() => {
+          const videoAspect = video.videoWidth / video.videoHeight
+          const boxAspect = videoRect.width / videoRect.height
+          if (videoAspect > boxAspect) {
+            const height = videoRect.width / videoAspect
+            const top = videoRect.top + (videoRect.height - height) / 2
+            return { left: videoRect.left, right: videoRect.right, top, bottom: top + height, width: videoRect.width, height }
+          }
+          const width = videoRect.height * videoAspect
+          const left = videoRect.left + (videoRect.width - width) / 2
+          return { left, right: left + width, top: videoRect.top, bottom: videoRect.bottom, width, height: videoRect.height }
+        })()
+
+    return {
+      ok: true,
+      objectFit: style.objectFit,
+      intrinsic: { width: video.videoWidth, height: video.videoHeight },
+      deltas: {
+        left: Math.abs(renderedRect.left - overlayRect.left),
+        right: Math.abs(renderedRect.right - overlayRect.right),
+        top: Math.abs(renderedRect.top - overlayRect.top),
+        bottom: Math.abs(renderedRect.bottom - overlayRect.bottom),
+      },
+    }
+  })
+
+  expect(fit.ok).toBeTruthy()
+  expect(fit.objectFit).toBe('fill')
+  expect(fit.intrinsic).toEqual({ width: 640, height: 368 })
+  expect(Math.max(...Object.values(fit.deltas))).toBeLessThan(1)
+})
+
 test('adapts workspace layout to responsive viewport class', async ({ page }) => {
   await installMockSocket(page)
   await page.goto('/')
@@ -722,6 +802,26 @@ test('toggles output controls and source visibility', async ({ page }) => {
 
   await stopButton.click()
   await expect(outputCard.getByRole('button', { name: 'Start' })).toBeVisible()
+})
+
+test('colors RTMP and SRT output indicators by sink health', async ({ page }) => {
+  await installMockSocket(page, 'output-health')
+  await page.goto('/')
+
+  const indicatorClass = async (name: string) => {
+    const card = page.locator('.output-card', { hasText: name })
+    await expect(card).toBeVisible()
+    return card.locator('.output-state-dot').getAttribute('class')
+  }
+
+  await expect(page.locator('.output-card', { hasText: 'RTMP Good' })).toContainText('connected')
+  await expect(page.locator('.output-card', { hasText: 'RTMP Loss' })).toContainText('degraded')
+  await expect(page.locator('.output-card', { hasText: 'RTMP Down' })).toContainText('disconnected')
+  await expect(page.locator('.output-card', { hasText: 'SRT Down' })).toContainText('disconnected')
+  expect(await indicatorClass('RTMP Good')).toContain('connected')
+  expect(await indicatorClass('RTMP Loss')).toContain('degraded')
+  expect(await indicatorClass('RTMP Down')).toContain('disconnected')
+  expect(await indicatorClass('SRT Down')).toContain('disconnected')
 })
 
 test('adds and removes filters from inspector', async ({ page }, testInfo) => {

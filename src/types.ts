@@ -183,7 +183,7 @@ export interface AppState {
   scenes: Record<string, { id: string; name: string; filters?: SourceFilter[] }>
   transitions: Record<string, { id: string; type: string; duration_ms: number; params?: Record<string, unknown> }>
   sources: Record<string, { id: string; name: string; type: string; state: string; enabled?: boolean; config?: Record<string, string>; filters?: SourceFilter[]; audio?: Record<string, unknown> }>
-  outputs: Record<string, { id: string; name: string; state: string }>
+  outputs: Record<string, { id: string; name: string; state: string; encoder?: Record<string, string>; health?: Record<string, unknown> }>
   telemetry: {
     compositorFps: number
     contentFps: number

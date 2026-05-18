@@ -36,6 +36,32 @@ function previewEncoderAxis(canvasAxis: number, downscaleFactor: number): number
   return Math.max(16, Math.ceil(evenAxis / 16) * 16)
 }
 
+function outputIndicatorClass(output: any): string {
+  const healthStatus = String(output?.health?.status ?? '')
+  const sinkType = output?.health?.sink_type ?? output?.encoder?.sink_type
+  if (healthStatus === 'connected') return 'connected'
+  if (healthStatus === 'degraded') return 'degraded'
+  if (healthStatus === 'disconnected') return 'disconnected'
+  if ((sinkType === 'rtmp' || sinkType === 'srt') && output?.state === 'running') return 'disconnected'
+  if (output?.state === 'running') return 'connected'
+  if (output?.state === 'error') return 'disconnected'
+  return 'stopped'
+}
+
+function outputStatusLabel(output: any): string {
+  const healthStatus = String(output?.health?.status ?? '')
+  const sinkType = output?.health?.sink_type ?? output?.encoder?.sink_type
+  if (healthStatus) return healthStatus
+  if ((sinkType === 'rtmp' || sinkType === 'srt') && output?.state === 'running') return 'disconnected'
+  return String(output?.state ?? '')
+}
+
+function outputStatusTitle(output: any): string {
+  const sinkType = output?.health?.sink_type ?? output?.encoder?.sink_type
+  const reason = output?.health?.reason
+  return [sinkType, reason].filter(Boolean).join(': ')
+}
+
 function inferFileOutputType(path?: string): string {
   const ext = path?.split('.').pop()?.toLowerCase()
   return ext && FILE_OUTPUT_TYPES.includes(ext) ? ext : 'ts'
@@ -3249,9 +3275,9 @@ export default function App() {
                 return (
                   <div key={output.id} className="output-card">
                     <div className="output-card-header">
-                      <span className={`output-state-dot ${output.state === 'running' ? 'running' : 'stopped'}`} />
+                      <span className={`output-state-dot ${outputIndicatorClass(output)}`} title={outputStatusTitle(output)} />
                       <strong>{output.name || output.id}</strong>
-                      <small>{output.state}</small>
+                      <small>{outputStatusLabel(output)}</small>
                     </div>
                     <div className="button-row compact-row">
                       <button onClick={() => runCommand(`output ${output.state === 'running' ? 'stop' : 'start'} ${output.id}`).then(() => setStatus(t('{id} toggled', { id: output.id }))).catch((error) => setStatus(String(error)))}>

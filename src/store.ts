@@ -97,6 +97,17 @@ function emit() {
   }
 }
 
+function mergeOutputHealth(outputHealth: Record<string, unknown> | undefined | null) {
+  if (!outputHealth || typeof outputHealth !== 'object') return
+  state.outputs = Object.fromEntries(Object.entries(state.outputs).map(([id, output]) => [
+    id,
+    {
+      ...output,
+      health: (outputHealth as Record<string, unknown>)[id] ?? (output as any).health,
+    },
+  ])) as typeof state.outputs
+}
+
 function applyServerState(payload: any) {
   const prevActiveSceneId = state.activeSceneId
   state.activeSceneId = payload?.state?.active_scene_id ?? null
@@ -108,6 +119,7 @@ function applyServerState(payload: any) {
   state.transitions = payload?.transitions ?? {}
   state.sources = payload?.sources ?? {}
   state.outputs = payload?.output_groups ?? {}
+  mergeOutputHealth(payload?.output_health ?? payload?.telemetry?.output_health)
   state.canvas = payload?.canvas ?? state.canvas
   state.pendingCanvas = payload?.pending_canvas ?? null
   state.canvasRestartRequired = Boolean(payload?.canvas_restart_required)
@@ -130,6 +142,7 @@ function applyServerState(payload: any) {
       gpuUsage: t.gpu_usage ?? state.telemetry.gpuUsage,
       pipelineSlow: t.pipeline_slow ?? state.telemetry.pipelineSlow,
     }
+    mergeOutputHealth(t.output_health)
   }
   if (state.activeSceneId !== prevActiveSceneId) {
     state.selectedSceneItemId = null
@@ -220,6 +233,7 @@ function onEvent(event: PubSubEvent) {
       gpuUsage: data.gpu_usage ?? 0,
       pipelineSlow: Boolean(data.pipeline_slow),
     }
+    mergeOutputHealth(data.output_health)
   }
 
   if (event.params.topic === 'audio.level') {
