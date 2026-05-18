@@ -25,8 +25,16 @@ const DEFAULT_DOCK_LAYOUT: DockLayout = {
 }
 
 const PREVIEW_ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
+const DEFAULT_PREVIEW_DOWNSCALE_FACTOR = 6
+const DEFAULT_PREVIEW_FRAMERATE = 60
 const EQ_BAND_LABELS = ['31 Hz', '62 Hz', '125 Hz', '250 Hz', '500 Hz', '1 kHz', '2 kHz', '4 kHz', '8 kHz', '16 kHz']
 const FILE_OUTPUT_TYPES = ['ts', 'mkv', 'flv', 'mp4']
+
+function previewEncoderAxis(canvasAxis: number, downscaleFactor: number): number {
+  const factor = downscaleFactor > 0 ? downscaleFactor : DEFAULT_PREVIEW_DOWNSCALE_FACTOR
+  const evenAxis = Math.max(2, Math.floor(canvasAxis / factor)) & ~1
+  return Math.max(16, Math.ceil(evenAxis / 16) * 16)
+}
 
 function inferFileOutputType(path?: string): string {
   const ext = path?.split('.').pop()?.toLowerCase()
@@ -170,7 +178,7 @@ export default function App() {
   const [editingOutputId, setEditingOutputId] = useState<string | null>(null)
   const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: '20000', keyframe_interval: '60', gop_preset: 'low_delay', enable_b_frames: false, rc_mode: '0' })
   const [editOutputTransport, setEditOutputTransport] = useState<Record<string, string>>({})
-  const [previewEncoder, setPreviewEncoder] = useState({ downscale_factor: '4', width: '480', height: '270', framerate: '30', bitrate_kbps: '2500' })
+  const [previewEncoder, setPreviewEncoder] = useState({ downscale_factor: String(DEFAULT_PREVIEW_DOWNSCALE_FACTOR), width: '640', height: '368', framerate: String(DEFAULT_PREVIEW_FRAMERATE), bitrate_kbps: '2500' })
   const [authSettings, setAuthSettings] = useState({ passwordless: false, username: 'admin', password: '' })
   const [configImportText, setConfigImportText] = useState('')
   const [fadeDurationMs, setFadeDurationMs] = useState('2000')
@@ -1331,7 +1339,7 @@ export default function App() {
     if (filter.type === 'contrast') {
       return { min: 0.5, max: 2.0, step: 0.05 }
     }
-    if (filter.type === 'hdr_to_sdr_lut') {
+    if (filter.type === 'hdr_to_sdr_lut' || filter.type === 'sdr_to_hdr') {
       return { min: 0, max: 2, step: 0.05 }
     }
     return { min: 0, max: 1, step: 0.1 }
@@ -1363,7 +1371,9 @@ export default function App() {
   }
 
   function hdrFilterParam(filter: any, key: string) {
-    const fallback = key === 'saturation' ? 1.42 : key === 'brightness' ? -0.02 : 0
+    const fallback = filter.type === 'sdr_to_hdr'
+      ? (key === 'saturation' ? 1.35 : key === 'brightness' ? -0.03 : 0)
+      : (key === 'saturation' ? 1.42 : key === 'brightness' ? -0.02 : 0)
     const value = Number(filter.params?.[key] ?? fallback)
     return Number.isFinite(value) ? value : fallback
   }
@@ -1411,7 +1421,7 @@ export default function App() {
         <div className="filter-control-row">
           <input
             type="range"
-            aria-label={`HDR to SDR ${key}`}
+            aria-label={`${filterDisplayName(filter.type)} ${key}`}
             draggable={false}
             min={range.min * range.scale}
             max={range.max * range.scale}
@@ -1450,6 +1460,7 @@ export default function App() {
   function filterAmountLabel(filter: any) {
     if (filter.type === 'brightness') return t('Brightness Offset')
     if (filter.type === 'contrast') return t('Contrast Multiplier')
+    if (filter.type === 'sdr_to_hdr') return t('HDR Expansion')
     if (filter.type === 'lut' || filter.type === 'hdr_to_sdr_lut') return t('LUT Strength')
     if (filter.type === 'grayscale') return t('Grayscale Strength')
     return t('Effect Strength')
@@ -1458,6 +1469,7 @@ export default function App() {
   function filterAmountHelp(filter: any) {
     if (filter.type === 'brightness') return t('Adds or removes brightness; 0 is neutral.')
     if (filter.type === 'contrast') return t('Multiplies contrast; 1.00x is neutral.')
+    if (filter.type === 'sdr_to_hdr') return t('Expands SDR luma and saturation before HDR10 output encoding.')
     if (filter.type === 'lut' || filter.type === 'hdr_to_sdr_lut') return t('Blends the LUT with the original image.')
     if (filter.type === 'grayscale') return t('0% keeps color, 100% is fully grayscale.')
     return t('Blend amount for this effect.')
@@ -1474,6 +1486,7 @@ export default function App() {
     if (type === 'hdr_to_sdr_lut') {
       return t('HDR→SDR LUT')
     }
+    if (type === 'sdr_to_hdr') return t('SDR→HDR')
     if (type === 'lut') return t('Apply LUT')
     if (type === 'color_correction') return t('Color Correction')
     if (type === 'luma_key') return t('Luma Key')
@@ -2289,9 +2302,9 @@ export default function App() {
       )
     }
     if (settingsTab === 'preview') {
-      const previewScale = Number(previewEncoder.downscale_factor) || 4
-      const previewWidth = Math.floor(((state.canvas?.width ?? 0)) / previewScale)
-      const previewHeight = Math.floor(((state.canvas?.height ?? 0)) / previewScale)
+      const previewScale = Number(previewEncoder.downscale_factor) || DEFAULT_PREVIEW_DOWNSCALE_FACTOR
+      const previewWidth = previewEncoderAxis(state.canvas?.width ?? DEFAULT_CANVAS_W, previewScale)
+      const previewHeight = previewEncoderAxis(state.canvas?.height ?? DEFAULT_CANVAS_H, previewScale)
       return (
         <>
           <div className="settings-warning">{t('Preview encoder settings for WebRTC preview. If preview is active, Apply restarts it automatically.')}</div>
@@ -2303,6 +2316,8 @@ export default function App() {
                 <option value="1">{t('1x original')}</option>
                 <option value="2">{t('2x downscale')}</option>
                 <option value="4">{t('4x downscale')}</option>
+                <option value="5">{t('5x downscale')}</option>
+                <option value="6">{t('6x downscale')}</option>
                 <option value="8">{t('8x downscale')}</option>
               </select>
               <span>{previewWidth}x{previewHeight}</span>
@@ -2549,8 +2564,8 @@ export default function App() {
                   setPreviewEncoder({
                     width: String(cfg.width || 1280),
                     height: String(cfg.height || 720),
-                    downscale_factor: String(cfg.downscale_factor || 4),
-                    framerate: String(cfg.framerate || 30),
+                    downscale_factor: String(cfg.downscale_factor || DEFAULT_PREVIEW_DOWNSCALE_FACTOR),
+                    framerate: String(cfg.framerate || DEFAULT_PREVIEW_FRAMERATE),
                     bitrate_kbps: String(cfg.bitrate_kbps || 2500),
                   })
                 }).catch(() => {})
@@ -2718,6 +2733,7 @@ export default function App() {
                 <option value="rotation">{t('Rotation')}</option>
                 <option value="lut">{t('Apply LUT')}</option>
                 <option value="hdr_to_sdr_lut">{t('HDR→SDR LUT')}</option>
+                <option value="sdr_to_hdr">{t('SDR→HDR')}</option>
               </select>
               <button
                 aria-label={t('Remove selected filter')}
@@ -2837,26 +2853,28 @@ export default function App() {
                     <small className="filter-value">{t('Current: {current} - Range: {range}', { current: formatFilterAmount(selectedFilter), range: formatFilterAmountRange(selectedFilter) })}</small>
                   </label>
                 )}
-                {selectedFilter.type === 'hdr_to_sdr_lut' && (
+                {(selectedFilter.type === 'hdr_to_sdr_lut' || selectedFilter.type === 'sdr_to_hdr') && (
                   <>
                     {renderHdrFilterSlider(selectedFilter, 'saturation', t('Saturation'))}
                     {renderHdrFilterSlider(selectedFilter, 'brightness', t('Brightness'))}
                     {renderHdrFilterSlider(selectedFilter, 'hue', t('Hue'))}
-                    <label className="filter-property-row">
-                      <span>{t('Path')}</span>
-                      <input
-                        value={String(selectedFilter.params?.path ?? '')}
-                        placeholder={t('Built-in HDR→SDR LUT')}
-                        onChange={(event) => {
-                          if (!effectiveFilterTarget) return
-                          const params = { ...(selectedFilter.params ?? {}), amount: defaultFilterAmount(selectedFilter), path: event.target.value }
-                          const update = effectiveFilterTarget.kind === 'scene'
-                            ? updateSceneFilter(effectiveFilterTarget.id, selectedFilter.id, selectedFilter.enabled, params)
-                            : updateFilter(effectiveFilterTarget.id, selectedFilter.id, selectedFilter.enabled, params)
-                          update.then(() => setStatus(t('Updated LUT path'))).catch((error) => setStatus(String(error)))
-                        }}
-                      />
-                    </label>
+                    {selectedFilter.type === 'hdr_to_sdr_lut' && (
+                      <label className="filter-property-row">
+                        <span>{t('Path')}</span>
+                        <input
+                          value={String(selectedFilter.params?.path ?? '')}
+                          placeholder={t('Built-in HDR→SDR LUT')}
+                          onChange={(event) => {
+                            if (!effectiveFilterTarget) return
+                            const params = { ...(selectedFilter.params ?? {}), amount: defaultFilterAmount(selectedFilter), path: event.target.value }
+                            const update = effectiveFilterTarget.kind === 'scene'
+                              ? updateSceneFilter(effectiveFilterTarget.id, selectedFilter.id, selectedFilter.enabled, params)
+                              : updateFilter(effectiveFilterTarget.id, selectedFilter.id, selectedFilter.enabled, params)
+                            update.then(() => setStatus(t('Updated LUT path'))).catch((error) => setStatus(String(error)))
+                          }}
+                        />
+                      </label>
+                    )}
                   </>
                 )}
                 {selectedFilter.type === 'lut' && (
