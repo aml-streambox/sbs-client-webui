@@ -60,6 +60,12 @@ async function installMockSocket(page: Page, scenario = 'default') {
           },
         ],
       },
+      preview_encoder: {
+        auto_downscale: true,
+        downscale_factor: 2,
+        framerate: 30,
+        bitrate_kbps: 2500,
+      },
       instances: [
         {
           instance_id: 0,
@@ -211,10 +217,10 @@ async function installMockSocket(page: Page, scenario = 'default') {
         'srt-down': { id: 'srt-down', name: 'SRT Down', state: 'running', encoder: { sink_type: 'srt' } },
       }
       ;(state as any).output_health = {
-        'rtmp-good': { sink_type: 'rtmp', status: 'connected', connected: true, degraded: false, reason: 'RTMP sink streaming' },
-        'rtmp-loss': { sink_type: 'rtmp', status: 'degraded', connected: true, degraded: true, reason: 'RTMP sink warnings detected' },
-        'rtmp-down': { sink_type: 'rtmp', status: 'disconnected', connected: false, degraded: false, reason: 'RTMP endpoint unreachable' },
-        'srt-down': { sink_type: 'srt', status: 'disconnected', connected: false, degraded: false, reason: 'waiting for SRT caller' },
+        'rtmp-good': { sink_type: 'rtmp', status: 'connected', connected: true, degraded: false, reason: 'RTMP sink streaming', packets_sent: 2000, packets_dropped: 0, packet_drop_rate: 0 },
+        'rtmp-loss': { sink_type: 'rtmp', status: 'degraded', connected: true, degraded: true, reason: 'RTMP sink warnings detected', packets_sent: 8000, packets_dropped: 100, packet_drop_rate: 0.012345 },
+        'rtmp-down': { sink_type: 'rtmp', status: 'disconnected', connected: false, degraded: false, reason: 'RTMP endpoint unreachable', packets_sent: 5, packets_dropped: 0, packet_drop_rate: 0 },
+        'srt-down': { sink_type: 'srt', status: 'disconnected', connected: false, degraded: false, reason: 'waiting for SRT caller', packets_sent: 0, packets_dropped: 0, packet_drop_rate: 0 },
       }
     }
 
@@ -522,6 +528,23 @@ async function installMockSocket(page: Page, scenario = 'default') {
           return
         }
 
+        if (method === 'preview.getEncoderConfig') {
+          respond({ jsonrpc: '2.0', id: request.id, result: state.preview_encoder })
+          return
+        }
+
+        if (method === 'preview.updateEncoderConfig') {
+          state.preview_encoder = {
+            ...state.preview_encoder,
+            auto_downscale: requestParams.auto_downscale ?? state.preview_encoder.auto_downscale,
+            downscale_factor: requestParams.downscale_factor ?? state.preview_encoder.downscale_factor,
+            framerate: requestParams.framerate ?? state.preview_encoder.framerate,
+            bitrate_kbps: requestParams.bitrate_kbps ?? state.preview_encoder.bitrate_kbps,
+          }
+          respond({ jsonrpc: '2.0', id: request.id, result: state.preview_encoder })
+          return
+        }
+
         if (method === 'scene.item.update') {
           const scene = state.scenes[requestParams.scene_id]
           if (scene) {
@@ -700,6 +723,24 @@ test('fits aligned preview video to canvas overlay bounds', async ({ page }) => 
   expect(Math.max(...Object.values(fit.deltas))).toBeLessThan(1)
 })
 
+test('shows logical preview scale sizes and auto 720p target', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  await page.getByRole('banner').getByRole('button', { name: 'Settings' }).click()
+  await page.locator('.settings-sidebar').getByRole('button', { name: 'Preview', exact: true }).click()
+
+  const scaleRow = page.locator('.settings-row').filter({ hasText: 'Resolution Scale' })
+  await expect(scaleRow).toContainText('960x540')
+  await scaleRow.locator('select').selectOption('1')
+  await expect(scaleRow).toContainText('1920x1080')
+  await scaleRow.locator('select').selectOption('auto')
+  await expect(scaleRow).toContainText('960x540')
+
+  await page.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(page.getByText('Preview encoder config updated')).toBeVisible()
+})
+
 test('adapts workspace layout to responsive viewport class', async ({ page }) => {
   await installMockSocket(page)
   await page.goto('/')
@@ -818,6 +859,8 @@ test('colors RTMP and SRT output indicators by sink health', async ({ page }) =>
   await expect(page.locator('.output-card', { hasText: 'RTMP Loss' })).toContainText('degraded')
   await expect(page.locator('.output-card', { hasText: 'RTMP Down' })).toContainText('disconnected')
   await expect(page.locator('.output-card', { hasText: 'SRT Down' })).toContainText('disconnected')
+  await expect(page.locator('.output-card', { hasText: 'RTMP Good' }).locator('.output-drop-rate')).toHaveText('drop 0.0%')
+  await expect(page.locator('.output-card', { hasText: 'RTMP Loss' }).locator('.output-drop-rate')).toHaveText('drop 1.2%')
   expect(await indicatorClass('RTMP Good')).toContain('connected')
   expect(await indicatorClass('RTMP Loss')).toContain('degraded')
   expect(await indicatorClass('RTMP Down')).toContain('disconnected')

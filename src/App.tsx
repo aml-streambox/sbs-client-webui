@@ -26,14 +26,39 @@ const DEFAULT_DOCK_LAYOUT: DockLayout = {
 
 const PREVIEW_ZOOM_STEPS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
 const DEFAULT_PREVIEW_DOWNSCALE_FACTOR = 6
-const DEFAULT_PREVIEW_FRAMERATE = 60
+const DEFAULT_PREVIEW_FRAMERATE = 30
+const DEFAULT_PREVIEW_BITRATE_KBPS = 2500
+const DEFAULT_ENCODER_BITRATE_KBPS = 10000
+const PREVIEW_TARGET_WIDTH = 1280
+const PREVIEW_TARGET_HEIGHT = 720
+const PREVIEW_DOWNSCALE_FACTORS = [1, 2, 3, 4, 5, 6, 8]
 const EQ_BAND_LABELS = ['31 Hz', '62 Hz', '125 Hz', '250 Hz', '500 Hz', '1 kHz', '2 kHz', '4 kHz', '8 kHz', '16 kHz']
 const FILE_OUTPUT_TYPES = ['ts', 'mkv', 'flv', 'mp4']
 
 function previewEncoderAxis(canvasAxis: number, downscaleFactor: number): number {
   const factor = downscaleFactor > 0 ? downscaleFactor : DEFAULT_PREVIEW_DOWNSCALE_FACTOR
   const evenAxis = Math.max(2, Math.floor(canvasAxis / factor)) & ~1
-  return Math.max(16, Math.ceil(evenAxis / 16) * 16)
+  return evenAxis
+}
+
+function previewAutoDownscaleFactor(canvasWidth: number, canvasHeight: number): number {
+  const targetFactor = Math.max(
+    1,
+    canvasWidth / PREVIEW_TARGET_WIDTH,
+    canvasHeight / PREVIEW_TARGET_HEIGHT,
+  )
+  return PREVIEW_DOWNSCALE_FACTORS.reduce((best, factor) => {
+    const bestDelta = Math.abs(best - targetFactor)
+    const delta = Math.abs(factor - targetFactor)
+    if (delta < bestDelta - 1e-6) return factor
+    if (Math.abs(delta - bestDelta) <= 1e-6 && factor > best) return factor
+    return best
+  }, PREVIEW_DOWNSCALE_FACTORS[0])
+}
+
+function previewScaleFactorValue(value: string, canvasWidth: number, canvasHeight: number): number {
+  if (value === 'auto') return previewAutoDownscaleFactor(canvasWidth, canvasHeight)
+  return Number(value) || DEFAULT_PREVIEW_DOWNSCALE_FACTOR
 }
 
 function outputIndicatorClass(output: any): string {
@@ -60,6 +85,31 @@ function outputStatusTitle(output: any): string {
   const sinkType = output?.health?.sink_type ?? output?.encoder?.sink_type
   const reason = output?.health?.reason
   return [sinkType, reason].filter(Boolean).join(': ')
+}
+
+function outputPacketDropRate(output: any): number | null {
+  const health = output?.health
+  if (!health || typeof health !== 'object') return null
+  const rate = Number(health.packet_drop_rate)
+  if (Number.isFinite(rate)) return Math.max(0, rate)
+  const percent = Number(health.packet_drop_percent)
+  if (Number.isFinite(percent)) return Math.max(0, percent / 100)
+  return null
+}
+
+function outputPacketDropLabel(output: any): string | null {
+  const rate = outputPacketDropRate(output)
+  if (rate === null) return null
+  const percent = rate * 100
+  return `drop ${percent < 0.05 && percent > 0 ? '<0.1' : percent.toFixed(1)}%`
+}
+
+function outputPacketDropTitle(output: any): string {
+  const health = output?.health ?? {}
+  const sent = Number(health.packets_sent)
+  const dropped = Number(health.packets_dropped)
+  if (!Number.isFinite(sent) || !Number.isFinite(dropped)) return 'Packet drop rate'
+  return `Packets dropped: ${dropped} / ${sent + dropped}`
 }
 
 function inferFileOutputType(path?: string): string {
@@ -202,9 +252,9 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState<'interface' | 'canvas' | 'encoder' | 'preview' | 'output' | 'auth' | 'config'>('canvas')
   const [settingsCanvas, setSettingsCanvas] = useState({ width: 1920, height: 1080, fps_num: 60, fps_den: 1, color_mode: 'sdr', background_color: '#000000' })
   const [editingOutputId, setEditingOutputId] = useState<string | null>(null)
-  const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: '20000', keyframe_interval: '60', gop_preset: 'low_delay', enable_b_frames: false, rc_mode: '0' })
+  const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: String(DEFAULT_ENCODER_BITRATE_KBPS), keyframe_interval: '60', gop_preset: 'low_delay', enable_b_frames: false, rc_mode: '0' })
   const [editOutputTransport, setEditOutputTransport] = useState<Record<string, string>>({})
-  const [previewEncoder, setPreviewEncoder] = useState({ downscale_factor: String(DEFAULT_PREVIEW_DOWNSCALE_FACTOR), width: '640', height: '368', framerate: String(DEFAULT_PREVIEW_FRAMERATE), bitrate_kbps: '2500' })
+  const [previewEncoder, setPreviewEncoder] = useState({ downscale_factor: 'auto', width: '640', height: '360', framerate: String(DEFAULT_PREVIEW_FRAMERATE), bitrate_kbps: String(DEFAULT_PREVIEW_BITRATE_KBPS) })
   const [authSettings, setAuthSettings] = useState({ passwordless: false, username: 'admin', password: '' })
   const [configImportText, setConfigImportText] = useState('')
   const [fadeDurationMs, setFadeDurationMs] = useState('2000')
@@ -2101,7 +2151,7 @@ export default function App() {
     getEncoderConfig().then((cfg: any) => {
       setSharedEncoder({
         codec: cfg.codec || 'h265',
-        bitrate_kbps: String(cfg.bitrate_kbps || 20000),
+        bitrate_kbps: String(cfg.bitrate_kbps || DEFAULT_ENCODER_BITRATE_KBPS),
         keyframe_interval: String(cfg.keyframe_interval || cfg.gop_size || 60),
         gop_preset: cfg.gop_preset || (cfg.enable_b_frames ? 'b_frames' : 'low_delay'),
         enable_b_frames: Boolean(cfg.enable_b_frames),
@@ -2149,6 +2199,10 @@ export default function App() {
         rc_mode: Number(sharedEncoder.rc_mode),
       }).then(() => setStatus(t('Encoder config updated'))).catch((e) => setStatus(String(e)))
     } else if (settingsTab === 'preview') {
+      const canvasWidth = state.canvas?.width ?? DEFAULT_CANVAS_W
+      const canvasHeight = state.canvas?.height ?? DEFAULT_CANVAS_H
+      const autoDownscale = previewEncoder.downscale_factor === 'auto'
+      const downscaleFactor = previewScaleFactorValue(previewEncoder.downscale_factor, canvasWidth, canvasHeight)
       const wasActive = Boolean(previewController)
       try {
         if (previewController) {
@@ -2156,11 +2210,13 @@ export default function App() {
           await previewController.stop()
           setPreviewController(null)
         }
-        await updatePreviewEncoderConfig({
-          downscale_factor: Number(previewEncoder.downscale_factor),
+        const previewConfig: { auto_downscale: boolean; downscale_factor?: number; framerate: number; bitrate_kbps: number } = {
+          auto_downscale: autoDownscale,
           framerate: Number(previewEncoder.framerate),
           bitrate_kbps: Number(previewEncoder.bitrate_kbps),
-        })
+        }
+        if (!autoDownscale) previewConfig.downscale_factor = downscaleFactor
+        await updatePreviewEncoderConfig(previewConfig)
         if (wasActive) {
           const controller = await startPreviewSession()
           setPreviewController(controller)
@@ -2328,9 +2384,11 @@ export default function App() {
       )
     }
     if (settingsTab === 'preview') {
-      const previewScale = Number(previewEncoder.downscale_factor) || DEFAULT_PREVIEW_DOWNSCALE_FACTOR
-      const previewWidth = previewEncoderAxis(state.canvas?.width ?? DEFAULT_CANVAS_W, previewScale)
-      const previewHeight = previewEncoderAxis(state.canvas?.height ?? DEFAULT_CANVAS_H, previewScale)
+      const canvasWidth = state.canvas?.width ?? DEFAULT_CANVAS_W
+      const canvasHeight = state.canvas?.height ?? DEFAULT_CANVAS_H
+      const previewScale = previewScaleFactorValue(previewEncoder.downscale_factor, canvasWidth, canvasHeight)
+      const previewWidth = previewEncoderAxis(canvasWidth, previewScale)
+      const previewHeight = previewEncoderAxis(canvasHeight, previewScale)
       return (
         <>
           <div className="settings-warning">{t('Preview encoder settings for WebRTC preview. If preview is active, Apply restarts it automatically.')}</div>
@@ -2339,8 +2397,10 @@ export default function App() {
             <label>{t('Resolution Scale')}</label>
             <div className="settings-inline">
               <select value={previewEncoder.downscale_factor} onChange={(e) => setPreviewEncoder((s) => ({ ...s, downscale_factor: e.target.value }))}>
+                <option value="auto">{t('Auto (~720p)')}</option>
                 <option value="1">{t('1x original')}</option>
                 <option value="2">{t('2x downscale')}</option>
+                <option value="3">{t('3x downscale')}</option>
                 <option value="4">{t('4x downscale')}</option>
                 <option value="5">{t('5x downscale')}</option>
                 <option value="6">{t('6x downscale')}</option>
@@ -2576,7 +2636,7 @@ export default function App() {
                 getEncoderConfig().then((cfg: any) => {
                   setSharedEncoder({
                     codec: cfg.codec || 'h265',
-                    bitrate_kbps: String(cfg.bitrate_kbps || 20000),
+                    bitrate_kbps: String(cfg.bitrate_kbps || DEFAULT_ENCODER_BITRATE_KBPS),
                     keyframe_interval: String(cfg.keyframe_interval || cfg.gop_size || 60),
                     gop_preset: cfg.gop_preset || (cfg.enable_b_frames ? 'b_frames' : 'low_delay'),
                     enable_b_frames: Boolean(cfg.enable_b_frames),
@@ -2590,9 +2650,9 @@ export default function App() {
                   setPreviewEncoder({
                     width: String(cfg.width || 1280),
                     height: String(cfg.height || 720),
-                    downscale_factor: String(cfg.downscale_factor || DEFAULT_PREVIEW_DOWNSCALE_FACTOR),
+                    downscale_factor: cfg.auto_downscale ? 'auto' : String(cfg.downscale_factor || DEFAULT_PREVIEW_DOWNSCALE_FACTOR),
                     framerate: String(cfg.framerate || DEFAULT_PREVIEW_FRAMERATE),
-                    bitrate_kbps: String(cfg.bitrate_kbps || 2500),
+                    bitrate_kbps: String(cfg.bitrate_kbps || DEFAULT_PREVIEW_BITRATE_KBPS),
                   })
                 }).catch(() => {})
                 setSettingsTab('preview')
@@ -3272,11 +3332,13 @@ export default function App() {
             <div className="control-column">
               <button onClick={() => handleCreateOutput().catch((error) => setStatus(String(error)))}>{t('+ Output')}</button>
               {outputEntries.map((output: any) => {
+                const dropLabel = outputPacketDropLabel(output)
                 return (
                   <div key={output.id} className="output-card">
                     <div className="output-card-header">
                       <span className={`output-state-dot ${outputIndicatorClass(output)}`} title={outputStatusTitle(output)} />
                       <strong>{output.name || output.id}</strong>
+                      {dropLabel && <span className="output-drop-rate" title={outputPacketDropTitle(output)}>{dropLabel}</span>}
                       <small>{outputStatusLabel(output)}</small>
                     </div>
                     <div className="button-row compact-row">
