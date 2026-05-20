@@ -11,7 +11,7 @@ export default defineConfig({
   },
   retries: 1,
   use: {
-    baseURL: targetBaseUrl || 'http://127.0.0.1:4173',
+    baseURL: targetBaseUrl || 'http://localhost:4173',
     headless: true,
     trace: 'retain-on-failure',
   },
@@ -101,7 +101,7 @@ export default defineConfig({
   webServer: targetBaseUrl
     ? undefined
     : {
-        command: 'npm run dev -- --host 127.0.0.1 --port 4173',
+        command: 'npm run dev -- --host localhost --port 4173',
         port: 4173,
         reuseExistingServer: true,
         timeout: 60_000,

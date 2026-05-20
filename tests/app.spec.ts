@@ -37,7 +37,7 @@ async function installMockSocket(page: Page, scenario = 'default') {
             requestable: false,
             active: true,
             viewer_count: 0,
-            stream_url: 'srt://127.0.0.1:8888',
+            stream_url: 'srt://localhost:8888',
           },
         ],
         requestable_profiles: [
@@ -56,7 +56,7 @@ async function installMockSocket(page: Page, scenario = 'default') {
             requestable: true,
             active: false,
             viewer_count: 0,
-            stream_url: 'http://127.0.0.1:10086/preview/preview-h264-720p30.m3u8',
+            stream_url: 'http://localhost:10086/preview/preview-h264-720p30.m3u8',
           },
         ],
       },
@@ -470,7 +470,7 @@ async function installMockSocket(page: Page, scenario = 'default') {
             result: {
               id: 'snap-1',
               format: 'jpeg',
-              url: 'http://127.0.0.1:10087/snapshots/snap-1.jpg',
+              url: '/snapshots/snap-1.jpg',
             },
           })
           return

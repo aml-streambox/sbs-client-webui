@@ -364,6 +364,7 @@ const zh: Record<string, string> = {
   'Effect Strength': '效果强度',
   'Adds or removes brightness; 0 is neutral.': '提高或降低亮度；0 为不变。',
   'Multiplies contrast; 1.00x is neutral.': '按倍率调整对比度；1.00x 为不变。',
+  'Maps SDR into HDR10 PQ with reduced paper white; above 100% raises paper white.': '将 SDR 映射到 HDR10 PQ，并降低纸白亮度；超过 100% 会提高纸白。',
   'Blends the LUT with the original image.': '控制 LUT 与原图的混合比例。',
   '0% keeps color, 100% is fully grayscale.': '0% 保留颜色，100% 完全灰度。',
   'Blend amount for this effect.': '调整该效果的混合比例。',

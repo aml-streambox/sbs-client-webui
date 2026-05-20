@@ -210,7 +210,7 @@ export function defaultApiUrl(): string {
   if (configured) {
     return configured
   }
-  const host = window.location.hostname || '127.0.0.1'
+  const host = window.location.hostname || 'localhost'
   const port = Number(window.location.port)
   const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
   if (port === 10086) {

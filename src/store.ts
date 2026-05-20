@@ -189,7 +189,7 @@ function choosePreviewProfile(catalog: AppState['previewCatalog']): PreviewProfi
 function resolvePreviewUrl(url: string): string {
   try {
     const parsed = new URL(url)
-    if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
+    if (parsed.hostname === 'localhost' || parsed.hostname === '[::1]' || parsed.hostname.startsWith('127.')) {
       parsed.hostname = defaultApiHost()
     }
     return parsed.toString()
@@ -624,7 +624,7 @@ function defaultFilterParams(type: string) {
       : type === 'hdr_to_sdr_lut'
         ? { amount: 1.0, path: '', saturation: 1.42, brightness: -0.02, hue: 0 }
         : type === 'sdr_to_hdr'
-          ? { amount: 1.0, saturation: 1.35, brightness: -0.03, hue: 0 }
+          ? { amount: 1.0, saturation: 1.12, brightness: 0, hue: 0 }
         : { amount: 1.0 }
 }
 

@@ -1448,7 +1448,7 @@ export default function App() {
 
   function hdrFilterParam(filter: any, key: string) {
     const fallback = filter.type === 'sdr_to_hdr'
-      ? (key === 'saturation' ? 1.35 : key === 'brightness' ? -0.03 : 0)
+      ? (key === 'saturation' ? 1.12 : key === 'brightness' ? 0 : 0)
       : (key === 'saturation' ? 1.42 : key === 'brightness' ? -0.02 : 0)
     const value = Number(filter.params?.[key] ?? fallback)
     return Number.isFinite(value) ? value : fallback
@@ -1545,7 +1545,7 @@ export default function App() {
   function filterAmountHelp(filter: any) {
     if (filter.type === 'brightness') return t('Adds or removes brightness; 0 is neutral.')
     if (filter.type === 'contrast') return t('Multiplies contrast; 1.00x is neutral.')
-    if (filter.type === 'sdr_to_hdr') return t('Expands SDR luma and saturation before HDR10 output encoding.')
+    if (filter.type === 'sdr_to_hdr') return t('Maps SDR into HDR10 PQ with reduced paper white; above 100% raises paper white.')
     if (filter.type === 'lut' || filter.type === 'hdr_to_sdr_lut') return t('Blends the LUT with the original image.')
     if (filter.type === 'grayscale') return t('0% keeps color, 100% is fully grayscale.')
     return t('Blend amount for this effect.')
@@ -2169,7 +2169,7 @@ export default function App() {
       sink_type: enc.sink_type || 'srt',
       srt_uri: enc.srt_uri || 'srt://:8888',
       srt_latency_ms: String(enc.srt_latency_ms || 600),
-      rtmp_uri: enc.rtmp_uri || 'rtmp://127.0.0.1:1935/live/stream',
+      rtmp_uri: enc.rtmp_uri || 'rtmp://localhost:1935/live/stream',
       rtmp_passcode: enc.rtmp_passcode || '',
       file_path: enc.file_path || '/tmp/stream.ts',
       file_path_mode: enc.file_path_mode || 'file',
