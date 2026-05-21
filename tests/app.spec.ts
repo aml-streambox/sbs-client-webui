@@ -96,11 +96,8 @@ async function installMockSocket(page: Page, scenario = 'default') {
         fields: [{ key: 'pattern', label: 'Pattern', type: 'select', default: 'smpte', options: ['smpte', 'ball', 'snow', 'pinwheel'] }],
       },
       {
-        id: 'streamboxsrc', name: 'StreamBox Capture', summary: 'StreamBox HDMI capture hardware', pausable: false,
-        fields: [
-          { key: 'capture_mode', label: 'Capture Mode', type: 'select', default: 'vfmcap', options: ['vfmcap', 'vdin1'] },
-          { key: 'output_format', label: 'Output Format', type: 'select', default: 'nv12', options: ['nv12', 'p010'] },
-        ],
+        id: 'vfmcap', name: 'VFM Capture', summary: 'Direct libvfmcap HDMI capture passthrough', pausable: false,
+        fields: [{ key: 'output_format', label: 'Output Format', type: 'select', default: 'raw', options: ['raw'] }],
       },
       {
         id: 'v4l2src', name: 'V4L2 Device', summary: 'Linux V4L2 video capture device', pausable: false,
