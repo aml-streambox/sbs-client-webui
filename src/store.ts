@@ -488,6 +488,10 @@ export async function runCommand(command: string) {
   return api.rpc('command.execute', { command })
 }
 
+export async function getDebugLogs(lines = 260) {
+  return api.rpc<{ ok: boolean; source: string; unit: string; lines: number; logs: string; stderr?: string; error?: string }>('debug.getLogs', { lines })
+}
+
 function makeClientId(prefix: string, name: string) {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'item'
   const suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`

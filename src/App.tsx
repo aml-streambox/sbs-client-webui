@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type Dispatch, type FormEvent, type SetStateAction } from 'react'
 import Hls from 'hls.js'
-import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createApiKey, createInstance, createOutput, createScene, createSource, deleteApiKey, describeSourceKind, discoverALSA, discoverV4L2, disableInstance, enableInstance, exportConfigBundle, getEncoderConfig, getPreviewEncoderConfig, getState, importConfigBundle, listApiKeys, listSourceKinds, loginApiKey, loginAuth, logoutAuth, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPasswordlessAuth, setPreviewScene, setSceneItemAudio, setupAuth, startPreviewSession, subscribe, transitionToPreview, updateAuthCredentials, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
+import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createApiKey, createInstance, createOutput, createScene, createSource, deleteApiKey, describeSourceKind, discoverALSA, discoverV4L2, disableInstance, enableInstance, exportConfigBundle, getDebugLogs, getEncoderConfig, getPreviewEncoderConfig, getState, importConfigBundle, listApiKeys, listSourceKinds, loginApiKey, loginAuth, logoutAuth, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPasswordlessAuth, setPreviewScene, setSceneItemAudio, setupAuth, startPreviewSession, subscribe, transitionToPreview, updateAuthCredentials, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
 import { LANGUAGE_OPTIONS, loadLanguage, saveLanguage, translate, type Language, type TranslationValues } from './i18n'
 
 import type { ALSADevice, SourceKind, SourceKindField, V4L2Device, V4L2Format, V4L2FrameInterval, V4L2Resolution } from './types'
@@ -34,6 +34,15 @@ const PREVIEW_TARGET_HEIGHT = 720
 const PREVIEW_DOWNSCALE_FACTORS = [1, 2, 3, 4, 5, 6, 8]
 const EQ_BAND_LABELS = ['31 Hz', '62 Hz', '125 Hz', '250 Hz', '500 Hz', '1 kHz', '2 kHz', '4 kHz', '8 kHz', '16 kHz']
 const FILE_OUTPUT_TYPES = ['ts', 'mkv', 'flv', 'mp4']
+
+function isFileSinkType(sinkType?: string): boolean {
+  return sinkType === 'file'
+}
+
+function normalizeOutputSinkType(sinkType?: string): string {
+  if (sinkType?.startsWith('file_')) return 'file'
+  return sinkType || 'srt'
+}
 
 function previewEncoderAxis(canvasAxis: number, downscaleFactor: number): number {
   const factor = downscaleFactor > 0 ? downscaleFactor : DEFAULT_PREVIEW_DOWNSCALE_FACTOR
@@ -249,7 +258,7 @@ export default function App() {
   const [filterAmountDrafts, setFilterAmountDrafts] = useState<Record<string, string>>({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<'interface' | 'canvas' | 'encoder' | 'preview' | 'output' | 'auth' | 'config'>('canvas')
+  const [settingsTab, setSettingsTab] = useState<'interface' | 'canvas' | 'encoder' | 'preview' | 'output' | 'auth' | 'config' | 'debug'>('canvas')
   const [settingsCanvas, setSettingsCanvas] = useState({ width: 1920, height: 1080, fps_num: 60, fps_den: 1, color_mode: 'sdr', background_color: '#000000' })
   const [editingOutputId, setEditingOutputId] = useState<string | null>(null)
   const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: String(DEFAULT_ENCODER_BITRATE_KBPS), keyframe_interval: '60', gop_preset: 'low_delay', enable_b_frames: false, rc_mode: '0' })
@@ -257,6 +266,10 @@ export default function App() {
   const [previewEncoder, setPreviewEncoder] = useState({ downscale_factor: 'auto', width: '640', height: '360', framerate: String(DEFAULT_PREVIEW_FRAMERATE), bitrate_kbps: String(DEFAULT_PREVIEW_BITRATE_KBPS) })
   const [authSettings, setAuthSettings] = useState({ passwordless: false, username: 'admin', password: '' })
   const [configImportText, setConfigImportText] = useState('')
+  const [debugLogLines, setDebugLogLines] = useState('260')
+  const [debugLogText, setDebugLogText] = useState('')
+  const [debugLogStatus, setDebugLogStatus] = useState('')
+  const [debugLogLoading, setDebugLogLoading] = useState(false)
   const [fadeDurationMs, setFadeDurationMs] = useState('2000')
   const [previewZoom, setPreviewZoom] = useState(1)
   const [previewViewport, setPreviewViewport] = useState({ width: 0, height: 0 })
@@ -590,6 +603,58 @@ export default function App() {
     if (!file) return
     setConfigImportText(await file.text())
     event.target.value = ''
+  }
+
+  function debugLogLineCount(text: string) {
+    const trimmed = text.trimEnd()
+    return trimmed ? trimmed.split('\n').length : 0
+  }
+
+  function formatDebugLogPayload(payload: { ok?: boolean; logs?: string; stderr?: string; error?: string }) {
+    const chunks: string[] = []
+    if (payload.logs) chunks.push(payload.logs.trimEnd())
+    if (payload.stderr) chunks.push(`[stderr]\n${payload.stderr.trimEnd()}`)
+    if (!payload.ok && payload.error) chunks.push(`[error]\n${payload.error}`)
+    return chunks.filter(Boolean).join('\n\n')
+  }
+
+  function downloadDebugLogsFile(text: string) {
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-').replace(/Z$/, 'Z')
+    const url = URL.createObjectURL(new Blob([text.endsWith('\n') ? text : `${text}\n`], { type: 'text/plain' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `sbs-server-logs-${stamp}.txt`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function handleRefreshDebugLogs() {
+    setDebugLogLoading(true)
+    setDebugLogStatus(t('Loading logs...'))
+    try {
+      const payload = await getDebugLogs(Number(debugLogLines) || 260)
+      const text = formatDebugLogPayload(payload)
+      setDebugLogText(text)
+      setDebugLogStatus(payload.ok
+        ? t('Loaded {count} log lines', { count: debugLogLineCount(text) })
+        : t('Log request completed with errors'))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setDebugLogStatus(t('Log request failed: {message}', { message }))
+    } finally {
+      setDebugLogLoading(false)
+    }
+  }
+
+  async function handleCopyDebugLogs() {
+    try {
+      await navigator.clipboard.writeText(debugLogText)
+      setDebugLogStatus(t('Logs copied to clipboard'))
+    } catch (error) {
+      setDebugLogStatus(t('Log copy failed: {message}', { message: error instanceof Error ? error.message : String(error) }))
+    }
   }
 
   useEffect(() => {
@@ -2164,9 +2229,10 @@ export default function App() {
 
   function openOutputTransport(output: any) {
     const enc = output.encoder || {}
+    const sinkType = normalizeOutputSinkType(enc.sink_type)
     setEditingOutputId(output.id)
     setEditOutputTransport({
-      sink_type: enc.sink_type || 'srt',
+      sink_type: sinkType,
       srt_uri: enc.srt_uri || 'srt://:8888',
       srt_latency_ms: String(enc.srt_latency_ms || 600),
       rtmp_uri: enc.rtmp_uri || 'rtmp://localhost:1935/live/stream',
@@ -2236,8 +2302,10 @@ export default function App() {
         patch.srt_latency_ms = Number(editOutputTransport.srt_latency_ms)
       } else if (sinkType === 'rtmp') {
         patch.rtmp_uri = editOutputTransport.rtmp_uri
-        patch.rtmp_passcode = editOutputTransport.rtmp_passcode
-      } else if (sinkType === 'file') {
+        if (editOutputTransport.rtmp_passcode || !selectedOutput?.encoder?.rtmp_passcode_set) {
+          patch.rtmp_passcode = editOutputTransport.rtmp_passcode
+        }
+      } else if (isFileSinkType(sinkType)) {
         patch.file_path = editOutputTransport.file_path
         patch.file_path_mode = editOutputTransport.file_path_mode || 'file'
         patch.file_prefix = editOutputTransport.file_prefix || 'stream'
@@ -2521,6 +2589,27 @@ export default function App() {
         </>
       )
     }
+    if (settingsTab === 'debug') {
+      return (
+        <>
+          <div className="settings-warning">{t('Debug logs may include stream URLs, local paths, and service messages. Share them carefully.')}</div>
+          <div className="settings-section-title">{t('SBS Server Logs')}</div>
+          <div className="settings-row">
+            <label>{t('Lines')}</label>
+            <div className="settings-inline">
+              <input type="number" min="1" max="1000" value={debugLogLines} onChange={(e) => setDebugLogLines(e.target.value)} />
+              <button type="button" onClick={() => handleRefreshDebugLogs()} disabled={debugLogLoading}>{debugLogLoading ? t('Loading...') : t('Refresh Logs')}</button>
+            </div>
+          </div>
+          <div className="settings-inline debug-log-actions">
+            <button type="button" onClick={() => handleCopyDebugLogs()} disabled={!debugLogText}>{t('Copy Logs')}</button>
+            <button type="button" onClick={() => downloadDebugLogsFile(debugLogText)} disabled={!debugLogText}>{t('Download Logs')}</button>
+          </div>
+          {debugLogStatus && <div className="settings-hint">{debugLogStatus}</div>}
+          <pre className="debug-log-output">{debugLogText || t('No logs loaded. Click Refresh Logs to fetch recent sbs-server journal entries.')}</pre>
+        </>
+      )
+    }
     // output tab
     return (
       <>
@@ -2544,7 +2633,13 @@ export default function App() {
           <>
             <div className="settings-row">
               <label>{t('Sink Type')}</label>
-              <select value={sinkType} onChange={(e) => setEditOutputTransport((s) => ({ ...s, sink_type: e.target.value }))}>
+              <select value={sinkType} onChange={(e) => {
+                const nextSinkType = e.target.value
+                setEditOutputTransport((s) => ({
+                  ...s,
+                  sink_type: nextSinkType,
+                }))
+              }}>
                 <option value="srt">SRT</option>
                 <option value="rtmp">RTMP</option>
                 <option value="file">{t('File')}</option>
@@ -2578,7 +2673,7 @@ export default function App() {
                 </div>
               </>
             )}
-            {sinkType === 'file' && (
+            {isFileSinkType(sinkType) && (
               <>
                 <div className="settings-row">
                   <label>{t('File Type')}</label>
@@ -2667,18 +2762,19 @@ export default function App() {
                 setSettingsTab('auth')
               }}>{t('Auth')}</button>
               <button className={settingsTab === 'config' ? 'active' : ''} onClick={() => setSettingsTab('config')}>{t('Config')}</button>
+              <button className={settingsTab === 'debug' ? 'active' : ''} onClick={() => setSettingsTab('debug')}>{t('Debug')}</button>
             </nav>
             <div className="settings-body">
               {renderSettingsBody()}
             </div>
           </div>
           <div className="settings-footer">
-            {settingsTab === 'interface' ? (
+            {settingsTab === 'interface' || settingsTab === 'debug' ? (
               <button className="btn-primary" onClick={() => setSettingsOpen(false)}>{t('Close')}</button>
             ) : (
               <button onClick={() => setSettingsOpen(false)}>{t('Cancel')}</button>
             )}
-            {settingsTab === 'interface' || settingsTab === 'config' ? null : settingsTab === 'canvas' ? (
+            {settingsTab === 'interface' || settingsTab === 'config' || settingsTab === 'debug' ? null : settingsTab === 'canvas' ? (
               <>
                 <button onClick={() => saveCanvasSettings()}>{t('Save')}</button>
                 <button className="btn-primary" onClick={() => applySettings()}>{t('Apply')}</button>
