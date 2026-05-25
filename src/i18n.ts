@@ -254,6 +254,8 @@ const zh: Record<string, string> = {
   'Framerate': '帧率',
   'Color': '色彩',
   'Color Mode': '色彩模式',
+  'Canvas Format': '画布格式',
+  'Colorimetry': '色度标记',
   'Background': '背景色',
   'Shared encoder settings apply to all outputs. Changing will briefly restart the encoder pipeline.': '这些编码器设置会应用到所有输出；修改后编码管线会短暂重启。',
   'Codec': '编码格式',

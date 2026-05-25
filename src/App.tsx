@@ -35,6 +35,16 @@ const PREVIEW_DOWNSCALE_FACTORS = [1, 2, 3, 4, 5, 6, 8]
 const EQ_BAND_LABELS = ['31 Hz', '62 Hz', '125 Hz', '250 Hz', '500 Hz', '1 kHz', '2 kHz', '4 kHz', '8 kHz', '16 kHz']
 const FILE_OUTPUT_TYPES = ['ts', 'mkv', 'flv', 'mp4']
 
+function canvasPixelFormat(canvas: any): string {
+  if (canvas?.pixel_format) return String(canvas.pixel_format)
+  return canvas?.color_mode === 'hdr10' ? 'p010' : 'nv21'
+}
+
+function canvasColorimetry(canvas: any): string {
+  if (canvas?.colorimetry) return String(canvas.colorimetry)
+  return canvas?.color_mode === 'hdr10' ? 'bt2020_pq' : 'sdr'
+}
+
 function isFileSinkType(sinkType?: string): boolean {
   return sinkType === 'file'
 }
@@ -259,7 +269,7 @@ export default function App() {
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<'interface' | 'canvas' | 'encoder' | 'preview' | 'output' | 'auth' | 'config' | 'debug'>('canvas')
-  const [settingsCanvas, setSettingsCanvas] = useState({ width: 1920, height: 1080, fps_num: 60, fps_den: 1, color_mode: 'sdr', background_color: '#000000' })
+  const [settingsCanvas, setSettingsCanvas] = useState({ width: 1920, height: 1080, fps_num: 60, fps_den: 1, pixel_format: 'nv21', colorimetry: 'sdr', background_color: '#000000' })
   const [editingOutputId, setEditingOutputId] = useState<string | null>(null)
   const [sharedEncoder, setSharedEncoder] = useState({ codec: 'h265', bitrate_kbps: String(DEFAULT_ENCODER_BITRATE_KBPS), keyframe_interval: '60', gop_preset: 'low_delay', enable_b_frames: false, rc_mode: '0' })
   const [editOutputTransport, setEditOutputTransport] = useState<Record<string, string>>({})
@@ -2209,7 +2219,8 @@ export default function App() {
         height: canvasState.height || 1080,
         fps_num: canvasState.fps_num || 60,
         fps_den: canvasState.fps_den || 1,
-        color_mode: canvasState.color_mode || 'sdr',
+        pixel_format: canvasPixelFormat(canvasState),
+        colorimetry: canvasColorimetry(canvasState),
         background_color: canvasState.background_color || '#000000',
       })
     }
@@ -2395,10 +2406,20 @@ export default function App() {
           </div>
           <div className="settings-section-title">{t('Color')}</div>
           <div className="settings-row">
-            <label>{t('Color Mode')}</label>
-            <select value={settingsCanvas.color_mode} onChange={(e) => setSettingsCanvas((s) => ({ ...s, color_mode: e.target.value }))}>
+            <label>{t('Canvas Format')}</label>
+            <select value={settingsCanvas.pixel_format} onChange={(e) => setSettingsCanvas((s) => ({ ...s, pixel_format: e.target.value }))}>
+              <option value="nv21">NV21 / 8-bit</option>
+              <option value="p010">P010 / 10-bit</option>
+            </select>
+          </div>
+          <div className="settings-row">
+            <label>{t('Colorimetry')}</label>
+            <select value={settingsCanvas.colorimetry} onChange={(e) => setSettingsCanvas((s) => ({ ...s, colorimetry: e.target.value }))}>
+              <option value="bt601">BT.601</option>
               <option value="sdr">SDR</option>
-              <option value="hdr10">HDR10</option>
+              <option value="bt709">BT.709</option>
+              <option value="bt2020_pq">BT.2020 PQ</option>
+              <option value="bt2100_hlg">BT.2100 HLG</option>
             </select>
           </div>
           <div className="settings-row">

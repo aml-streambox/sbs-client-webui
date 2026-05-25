@@ -163,6 +163,8 @@ export interface AppState {
     height: number
     fps_num: number
     fps_den: number
+    pixel_format?: string
+    colorimetry?: string
     color_mode: string
     background_color: string
   } | null
@@ -171,6 +173,8 @@ export interface AppState {
     height: number
     fps_num: number
     fps_den: number
+    pixel_format?: string
+    colorimetry?: string
     color_mode: string
     background_color: string
   } | null

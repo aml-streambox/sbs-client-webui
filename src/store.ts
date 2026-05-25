@@ -601,7 +601,7 @@ export async function updatePreviewEncoderConfig(config: { auto_downscale?: bool
   return api.rpc('preview.updateEncoderConfig', { profile_id: profileId || 'preview-h264-webrtc', ...config })
 }
 
-export async function updateCanvas(canvas: { width?: number; height?: number; fps_num?: number; fps_den?: number; color_mode?: string; background_color?: string }) {
+export async function updateCanvas(canvas: { width?: number; height?: number; fps_num?: number; fps_den?: number; pixel_format?: string; colorimetry?: string; color_mode?: string; background_color?: string }) {
   const result = await api.rpc('canvas.update', { canvas })
   await refreshState()
   return result
