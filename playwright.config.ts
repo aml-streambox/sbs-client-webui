@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test'
 
 const targetBaseUrl = process.env.SBS_E2E_TARGET_URL
-const responsiveGrep = /adapts workspace|phone operator|tablet panel|keeps desktop dock/
+const responsiveGrep = /adapts workspace|phone operator|touch drag|context menu|phone settings|21:9 phone|tablet panel|keeps desktop dock/
 
 export default defineConfig({
   testDir: './tests',
@@ -30,6 +30,24 @@ export default defineConfig({
       grep: responsiveGrep,
       use: {
         viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
+    {
+      name: 'phone-21x9-portrait-touch',
+      grep: responsiveGrep,
+      use: {
+        viewport: { width: 393, height: 917 },
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
+    {
+      name: 'phone-21x9-landscape-touch',
+      grep: responsiveGrep,
+      use: {
+        viewport: { width: 917, height: 393 },
         hasTouch: true,
         isMobile: true,
       },

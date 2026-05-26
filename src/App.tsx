@@ -142,12 +142,31 @@ function workspaceModeForViewport(width: number, height: number, coarsePointer =
   return 'desktop'
 }
 
+function isShortWidePhoneViewport(width: number, height: number, coarsePointer = false) {
+  return workspaceModeForViewport(width, height, coarsePointer) === 'phone' && width >= 700 && height <= 600
+}
+
 const DEFAULT_DOCK_SIZES = {
   leftWidth: 270,
   rightWidth: 240,
   bottomHeight: 220,
   leftTopRatio: 0.5,
   bottomLeftRatio: 1.4,
+}
+
+const CONTEXT_MENU_MARGIN = 8
+const PREVIEW_CONTEXT_MENU_WIDTH = 220
+const PREVIEW_CONTEXT_MENU_HEIGHT = 330
+const COMPACT_CONTEXT_MENU_HEIGHT = 180
+
+function clampContextMenuPosition(x: number, y: number, width = PREVIEW_CONTEXT_MENU_WIDTH, height = PREVIEW_CONTEXT_MENU_HEIGHT) {
+  if (typeof window === 'undefined') return { x, y }
+  const maxX = Math.max(CONTEXT_MENU_MARGIN, window.innerWidth - width - CONTEXT_MENU_MARGIN)
+  const maxY = Math.max(CONTEXT_MENU_MARGIN, window.innerHeight - height - CONTEXT_MENU_MARGIN)
+  return {
+    x: Math.max(CONTEXT_MENU_MARGIN, Math.min(x, maxX)),
+    y: Math.max(CONTEXT_MENU_MARGIN, Math.min(y, maxY)),
+  }
 }
 
 function normalizeDockLayout(input: unknown): DockLayout {
@@ -285,6 +304,9 @@ export default function App() {
   const [previewViewport, setPreviewViewport] = useState({ width: 0, height: 0 })
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>(() => typeof window === 'undefined' ? 'desktop' : workspaceModeForViewport(window.innerWidth, window.innerHeight, window.matchMedia('(pointer: coarse)').matches))
   const [phoneSection, setPhoneSection] = useState<PhoneSection>('scenes')
+  const [phonePanelOpen, setPhonePanelOpen] = useState(() => typeof window === 'undefined' ? true : !isShortWidePhoneViewport(window.innerWidth, window.innerHeight, window.matchMedia('(pointer: coarse)').matches))
+  const [fullscreenAvailable, setFullscreenAvailable] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
   const dragRef = useRef<{
     type: 'move' | 'resize'
@@ -478,6 +500,45 @@ export default function App() {
     }
   }
 
+  function startPreviewMove(itemId: string, clientX: number, clientY: number) {
+    setContextMenu(null)
+    selectSceneItem(itemId)
+    const scene = (state.scenes as Record<string, any>)[state.activeSceneId!]
+    if (!scene) return false
+    const item = (scene.items as any[])?.find((it: any) => it.id === itemId)
+    if (!item) return false
+    dragRef.current = {
+      type: 'move',
+      itemId,
+      startMouseX: clientX,
+      startMouseY: clientY,
+      startPositionX: item.transform?.position_x ?? 0,
+      startPositionY: item.transform?.position_y ?? 0,
+      startWidth: item.transform?.width ?? 640,
+      startHeight: item.transform?.height ?? 360,
+    }
+    return true
+  }
+
+  function startPreviewResize(handle: string, clientX: number, clientY: number) {
+    if (!state.selectedSceneItemId || !state.activeSceneId) return false
+    const scene = (state.scenes as Record<string, any>)[state.activeSceneId]
+    const item = (scene?.items as any[])?.find((it: any) => it.id === state.selectedSceneItemId)
+    if (!item) return false
+    dragRef.current = {
+      type: 'resize',
+      itemId: state.selectedSceneItemId,
+      startMouseX: clientX,
+      startMouseY: clientY,
+      startPositionX: item.transform?.position_x ?? 0,
+      startPositionY: item.transform?.position_y ?? 0,
+      startWidth: item.transform?.width ?? 640,
+      startHeight: item.transform?.height ?? 360,
+      handle,
+    }
+    return true
+  }
+
   async function finishPreviewDrag() {
     const drag = dragRef.current
     if (!drag) return
@@ -508,6 +569,17 @@ export default function App() {
         width: Math.round(newW),
         height: Math.round(newH),
       }).catch(() => {})
+    }
+  }
+
+  async function requestPhoneFullscreen() {
+    if (!document.fullscreenEnabled || document.fullscreenElement) return
+    try {
+      await document.documentElement.requestFullscreen()
+      setStatus(t('Fullscreen enabled'))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setStatus(t('Fullscreen request failed: {message}', { message }))
     }
   }
 
@@ -790,11 +862,24 @@ export default function App() {
 
   useEffect(() => {
     function onResize() {
-      setWorkspaceMode(workspaceModeForViewport(window.innerWidth, window.innerHeight, window.matchMedia('(pointer: coarse)').matches))
+      const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+      const nextMode = workspaceModeForViewport(window.innerWidth, window.innerHeight, coarsePointer)
+      setWorkspaceMode(nextMode)
+      setPhonePanelOpen(nextMode === 'phone' ? !isShortWidePhoneViewport(window.innerWidth, window.innerHeight, coarsePointer) : true)
     }
     onResize()
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    function updateFullscreenState() {
+      setFullscreenAvailable(Boolean(document.fullscreenEnabled && document.documentElement.requestFullscreen))
+      setIsFullscreen(Boolean(document.fullscreenElement))
+    }
+    updateFullscreenState()
+    document.addEventListener('fullscreenchange', updateFullscreenState)
+    return () => document.removeEventListener('fullscreenchange', updateFullscreenState)
   }, [])
 
   useEffect(() => {
@@ -3314,7 +3399,7 @@ export default function App() {
                 className={`list-item row-item ${scene.id === state.activeSceneId ? 'active' : ''} ${scene.id === state.previewSceneId ? 'preview' : ''}`}
                 onContextMenu={(event) => {
                   event.preventDefault()
-                  setSceneContextMenu({ x: event.clientX, y: event.clientY, sceneId: scene.id })
+                  setSceneContextMenu({ ...clampContextMenuPosition(event.clientX, event.clientY, PREVIEW_CONTEXT_MENU_WIDTH, COMPACT_CONTEXT_MENU_HEIGHT), sceneId: scene.id })
                 }}
               >
                 <button
@@ -3395,7 +3480,7 @@ export default function App() {
                   onContextMenu={(event) => {
                     event.preventDefault()
                     selectSource(source.id)
-                    setSourceContextMenu({ x: event.clientX, y: event.clientY, sourceId: source.id })
+                    setSourceContextMenu({ ...clampContextMenuPosition(event.clientX, event.clientY, PREVIEW_CONTEXT_MENU_WIDTH, COMPACT_CONTEXT_MENU_HEIGHT), sourceId: source.id })
                   }}
                 >
                   <div className="source-item-header source-item-selectable" onClick={() => {
@@ -3524,7 +3609,7 @@ export default function App() {
                     className={`obs-audio-strip ${enabled ? 'enabled' : 'disabled'} ${muted ? 'muted' : ''}`}
                     onContextMenu={(event) => {
                       event.preventDefault()
-                      setAudioContextMenu({ x: event.clientX, y: event.clientY, sceneId: state.activeSceneId || '', itemId: item.id, sourceId: source.id })
+                      setAudioContextMenu({ ...clampContextMenuPosition(event.clientX, event.clientY, PREVIEW_CONTEXT_MENU_WIDTH, COMPACT_CONTEXT_MENU_HEIGHT), sceneId: state.activeSceneId || '', itemId: item.id, sourceId: source.id })
                     }}
                     title={t('Right-click for audio filters')}
                   >
@@ -3566,7 +3651,7 @@ export default function App() {
                 className={`obs-audio-strip master-channel ${state.audio.master_mute ? 'muted' : ''}`}
                 onContextMenu={(event) => {
                   event.preventDefault()
-                  setMasterAudioContextMenu({ x: event.clientX, y: event.clientY })
+                  setMasterAudioContextMenu(clampContextMenuPosition(event.clientX, event.clientY, PREVIEW_CONTEXT_MENU_WIDTH, COMPACT_CONTEXT_MENU_HEIGHT))
                 }}
                 title={t('Right-click for global audio filters')}
               >
@@ -3701,7 +3786,12 @@ export default function App() {
             type="button"
             aria-current={phoneSection === section ? 'page' : undefined}
             className={phoneSection === section ? 'active' : ''}
-            onClick={() => setPhoneSection(section)}
+            aria-controls={workspaceMode === 'phone' ? 'phone-adaptive-panel' : undefined}
+            aria-expanded={workspaceMode === 'phone' ? phonePanelOpen : undefined}
+            onClick={() => {
+              setPhoneSection(section)
+              if (workspaceMode === 'phone') setPhonePanelOpen(true)
+            }}
           >
             {phoneSectionLabel(section)}
           </button>
@@ -3921,6 +4011,8 @@ export default function App() {
         setContextMenu(null)
         setSourceContextMenu(null)
         setSceneContextMenu(null)
+        setAudioContextMenu(null)
+        setMasterAudioContextMenu(null)
       }
     }
 
@@ -4023,7 +4115,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell" data-workspace-mode={workspaceMode}>
+    <div className="app-shell" data-workspace-mode={workspaceMode} data-phone-panel-open={workspaceMode === 'phone' && phonePanelOpen ? 'true' : 'false'}>
       <header className="obs-topbar">
         <div className="obs-brand">
           <strong>SBS Studio</strong>
@@ -4087,6 +4179,9 @@ export default function App() {
             <div className="api-key-tools">
               <button onClick={() => { logoutAuth(); setStatus(t('Signed out')) }}>{t('Sign Out')}</button>
             </div>
+          )}
+          {workspaceMode === 'phone' && fullscreenAvailable && !isFullscreen && (
+            <button className="phone-fullscreen-btn" aria-label={t('Enter fullscreen')} onClick={() => requestPhoneFullscreen().catch((error) => setStatus(String(error)))}>{t('Fullscreen')}</button>
           )}
           <button className="settings-btn" onClick={() => openSettings()}>{t('Settings')}</button>
         </div>
@@ -4157,23 +4252,10 @@ export default function App() {
                   if (e.button !== 0) return
                   const target = e.target as HTMLElement
                   if (target.classList.contains('resize-handle')) return
-                  if (target.classList.contains('source-bbox')) {
-                    const itemId = target.dataset.itemId!
-                    selectSceneItem(itemId)
-                    const scene = (state.scenes as Record<string, any>)[state.activeSceneId!]
-                    if (!scene) return
-                    const item = (scene.items as any[])?.find((it: any) => it.id === itemId)
-                    if (!item) return
-                    dragRef.current = {
-                      type: 'move',
-                      itemId,
-                      startMouseX: e.clientX,
-                      startMouseY: e.clientY,
-                      startPositionX: item.transform?.position_x ?? 0,
-                      startPositionY: item.transform?.position_y ?? 0,
-                      startWidth: item.transform?.width ?? 640,
-                      startHeight: item.transform?.height ?? 360,
-                    }
+                  const bbox = target.closest('.source-bbox') as HTMLElement | null
+                  if (bbox) {
+                    const itemId = preferredContextItemId(e.clientX, e.clientY, bbox.dataset.itemId!)
+                    if (!startPreviewMove(itemId, e.clientX, e.clientY)) return
                     e.preventDefault()
                   } else {
                     selectSceneItem(null)
@@ -4189,34 +4271,63 @@ export default function App() {
                     e.preventDefault()
                     const itemId = preferredContextItemId(e.clientX, e.clientY, bbox.dataset.itemId!)
                     selectSceneItem(itemId)
-                    setContextMenu({ x: e.clientX, y: e.clientY, itemId })
+                    setContextMenu({ ...clampContextMenuPosition(e.clientX, e.clientY), itemId })
                   }
                 }}
                 onTouchStart={(e) => {
                   const target = e.target as HTMLElement
                   if (target.classList.contains('resize-handle')) return
+                  const touch = e.touches[0]
+                  if (!touch) return
+                  const handle = target.closest('.bbox-rh') as HTMLElement | null
+                  if (handle?.dataset.dir && startPreviewResize(handle.dataset.dir, touch.clientX, touch.clientY)) {
+                    e.preventDefault()
+                    return
+                  }
                   const bbox = target.closest('.source-bbox') as HTMLElement | null
                   if (bbox) {
-                    const touch = e.touches[0]
                     const itemId = preferredContextItemId(touch.clientX, touch.clientY, bbox.dataset.itemId!)
-                    longPressRef.current = { timer: window.setTimeout(() => {
-                      selectSceneItem(itemId)
-                      setContextMenu({ x: touch.clientX, y: touch.clientY, itemId })
-                      longPressRef.current = null
-                    }, 500), itemId, x: touch.clientX, y: touch.clientY }
+                    if (startPreviewMove(itemId, touch.clientX, touch.clientY)) {
+                      longPressRef.current = { timer: window.setTimeout(() => {
+                        dragRef.current = null
+                        selectSceneItem(itemId)
+                        setContextMenu({ ...clampContextMenuPosition(touch.clientX, touch.clientY), itemId })
+                        longPressRef.current = null
+                      }, 500), itemId, x: touch.clientX, y: touch.clientY }
+                      e.preventDefault()
+                    }
+                  } else {
+                    selectSceneItem(null)
+                    setContextMenu(null)
                   }
                 }}
-                onTouchMove={() => {
+                onTouchMove={(e) => {
                   if (longPressRef.current) {
                     clearTimeout(longPressRef.current.timer)
                     longPressRef.current = null
                   }
+                  const touch = e.touches[0]
+                  if (touch && dragRef.current) {
+                    updatePreviewDrag(touch.clientX, touch.clientY)
+                    e.preventDefault()
+                  }
                 }}
-                onTouchEnd={() => {
+                onTouchEnd={(e) => {
                   if (longPressRef.current) {
                     clearTimeout(longPressRef.current.timer)
                     longPressRef.current = null
                   }
+                  if (dragRef.current) {
+                    e.preventDefault()
+                    finishPreviewDrag().catch(() => {})
+                  }
+                }}
+                onTouchCancel={() => {
+                  if (longPressRef.current) {
+                    clearTimeout(longPressRef.current.timer)
+                    longPressRef.current = null
+                  }
+                  finishPreviewDrag().catch(() => {})
                 }}
               >
                 {(() => {
@@ -4231,26 +4342,11 @@ export default function App() {
                     const isOffCanvas = (t.position_x || 0) < 0 || (t.position_y || 0) < 0 ||
                       (t.position_x || 0) + (t.width || 640) > canvasW ||
                       (t.position_y || 0) + (t.height || 360) > canvasH
-  function startResize(e: React.MouseEvent, handle: string) {
-    if (!state.selectedSceneItemId || !state.activeSceneId) return
-    const scene = (state.scenes as Record<string, any>)[state.activeSceneId]
-    const item = (scene?.items as any[])?.find((it: any) => it.id === state.selectedSceneItemId)
-    if (!item) return
-    dragRef.current = {
-      type: 'resize',
-      itemId: state.selectedSceneItemId,
-      startMouseX: e.clientX,
-      startMouseY: e.clientY,
-      startPositionX: item.transform?.position_x ?? 0,
-      startPositionY: item.transform?.position_y ?? 0,
-      startWidth: item.transform?.width ?? 640,
-      startHeight: item.transform?.height ?? 360,
-      handle,
-    }
-    e.preventDefault()
-  }
+                      function startResize(e: React.MouseEvent, handle: string) {
+                        if (startPreviewResize(handle, e.clientX, e.clientY)) e.preventDefault()
+                      }
 
-  return (
+                      return (
                       <div
                         key={item.id}
                         className={`source-bbox ${isSelected ? 'source-bbox--selected' : ''} ${isOffCanvas ? 'source-bbox--offcanvas' : ''}`}
@@ -4295,6 +4391,7 @@ export default function App() {
               style={{ left: contextMenu.x, top: contextMenu.y }}
               onClick={(e) => e.stopPropagation()}
             >
+              <button className="context-menu-close" type="button" onClick={() => setContextMenu(null)}>{t('Close')}</button>
               <div className="ctx-group-label">{t('Transform')}</div>
               <button onClick={async () => { await updateSceneItemTransform(state.activeSceneId!, contextMenu.itemId, { position_x: 0, position_y: 0, width: 640, height: 360 }).catch(() => {}); setContextMenu(null) }}>{t('Reset Transform')}</button>
               <button onClick={async () => { await updateSceneItemTransform(state.activeSceneId!, contextMenu.itemId, { position_x: 0, position_y: 0, width: canvasW, height: canvasH }).catch(() => {}); setContextMenu(null) }}>{t('Fit to Screen')}</button>
@@ -4333,6 +4430,7 @@ export default function App() {
                 style={{ left: sourceContextMenu.x, top: sourceContextMenu.y }}
                 onClick={(event) => event.stopPropagation()}
               >
+                <button className="context-menu-close" type="button" onClick={() => setSourceContextMenu(null)}>{t('Close')}</button>
                 <div className="ctx-group-label">{t('Source')}</div>
                 <button onClick={() => openSourceFilters(source.id)}>{t('Effect Filters...')}</button>
                 <div className="ctx-separator" />
@@ -4357,6 +4455,7 @@ export default function App() {
                 style={{ left: sceneContextMenu.x, top: sceneContextMenu.y }}
                 onClick={(event) => event.stopPropagation()}
               >
+                <button className="context-menu-close" type="button" onClick={() => setSceneContextMenu(null)}>{t('Close')}</button>
                 <div className="ctx-group-label">{t('Scene')}</div>
                 <button onClick={() => openSceneFilters(scene.id)}>{t('Effect Filters...')}</button>
                 <div className="ctx-separator" />
@@ -4385,6 +4484,7 @@ export default function App() {
                 style={{ left: audioContextMenu.x, top: audioContextMenu.y }}
                 onClick={(event) => event.stopPropagation()}
               >
+                <button className="context-menu-close" type="button" onClick={() => setAudioContextMenu(null)}>{t('Close')}</button>
                 <div className="ctx-group-label">{t('Audio Filters')}</div>
                 <button onClick={() => openAudioFilter('channel_gain')}>{t('Channel Gain')}</button>
                 <button onClick={() => openAudioFilter('delay')}>{t('Delay')}</button>
@@ -4401,6 +4501,7 @@ export default function App() {
               style={{ left: masterAudioContextMenu.x, top: masterAudioContextMenu.y }}
               onClick={(event) => event.stopPropagation()}
             >
+              <button className="context-menu-close" type="button" onClick={() => setMasterAudioContextMenu(null)}>{t('Close')}</button>
               <div className="ctx-group-label">{t('Global Audio Filters')}</div>
               <button onClick={() => { setMasterAudioFilterEditor('channel_gain'); setMasterAudioContextMenu(null) }}>{t('Channel Gain')}</button>
               <button onClick={() => { setMasterAudioFilterEditor('eq'); setMasterAudioContextMenu(null) }}>{t('Equalizer')}</button>
@@ -4412,11 +4513,16 @@ export default function App() {
 
         {workspaceMode !== 'desktop' && (
           <section
+            id="phone-adaptive-panel"
             className="panel adaptive-panel-shell"
             role="region"
+            aria-hidden={workspaceMode === 'phone' && !phonePanelOpen ? 'true' : undefined}
             aria-label={`${phoneSectionLabel(phoneSection)} ${t('workspace panel')}`}
           >
             <div className="adaptive-panel-grip" aria-hidden="true" />
+            {workspaceMode === 'phone' && (
+              <button className="adaptive-panel-close" type="button" onClick={() => setPhonePanelOpen(false)}>{t('Close')}</button>
+            )}
             {workspaceMode === 'tablet' && renderSectionNav('tablet-section-nav')}
             {renderAdaptiveSection()}
           </section>
@@ -4435,6 +4541,16 @@ export default function App() {
         {renderEmptyDockDropTarget('right')}
         {renderEmptyDockDropTarget('bottom')}
       </main>
+
+      {workspaceMode === 'phone' && (
+        <footer className="mobile-statusbar" aria-label={t('Mobile status')}>
+          <span className="mobile-statusbar-state">{t('Status')} {headerStatus}</span>
+          <span className={fpsWarn ? 'warn' : ''} title={fpsTitle}>{t('FPS')} {displayFps}/{targetFps}</span>
+          <span>{t('Bitrate')} {Math.round(state.telemetry.bitrateKbps)} kbps</span>
+          <span>{t('CPU')} {Math.round(state.telemetry.cpuUsage)}%</span>
+          <span>{t('GPU')} {Math.round(state.telemetry.gpuUsage)}%</span>
+        </footer>
+      )}
 
       <footer className="obs-statusbar">
         <div className="obs-status-items">

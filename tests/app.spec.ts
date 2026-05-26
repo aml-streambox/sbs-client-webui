@@ -753,8 +753,20 @@ test('adapts workspace layout to responsive viewport class', async ({ page }) =>
 
   if (mode === 'phone') {
     await expect(page.locator('.phone-bottom-nav')).toBeVisible()
-    await expect(page.locator('.adaptive-panel-shell')).toBeVisible()
-    await expect(page.locator('.adaptive-panel-shell')).toHaveAttribute('aria-label', /Scenes/)
+    await expect(page.locator('.mobile-statusbar')).toBeVisible()
+    await expect(page.locator('.mobile-statusbar')).toContainText('Status')
+    await expect(page.locator('.mobile-statusbar')).toContainText('FPS')
+    await expect(page.locator('.mobile-statusbar')).toContainText('Bitrate')
+    await expect(page.locator('.mobile-statusbar')).toContainText('CPU')
+    await expect(page.locator('.mobile-statusbar')).toContainText('GPU')
+    const landscape = await page.evaluate(() => window.innerWidth > window.innerHeight)
+    if (landscape) {
+      await expect(page.locator('.app-shell')).toHaveAttribute('data-phone-panel-open', 'false')
+      await expect(page.locator('.adaptive-panel-shell')).toBeHidden()
+    } else {
+      await expect(page.locator('.adaptive-panel-shell')).toBeVisible()
+      await expect(page.locator('.adaptive-panel-shell')).toHaveAttribute('aria-label', /Scenes/)
+    }
   } else if (mode === 'tablet') {
     await expect(page.locator('.tablet-section-nav')).toBeVisible()
     await expect(page.locator('.adaptive-panel-shell')).toBeVisible()
@@ -783,11 +795,149 @@ test('supports core phone operator flow', async ({ page }) => {
   await expect(sourceItem).toBeVisible()
   await sourceItem.getByRole('button', { name: 'Hide' }).click()
   await expect(sourceItem.getByRole('button', { name: 'Show' })).toBeVisible()
+  if (await page.evaluate(() => window.innerWidth > window.innerHeight)) {
+    await page.locator('.adaptive-panel-close').click()
+    await expect(page.locator('.adaptive-panel-shell')).toBeHidden()
+  }
 
   await page.getByRole('button', { name: 'Snapshot' }).click()
   await expect(page.getByRole('link', { name: 'Open Snapshot' })).toBeVisible()
   await page.getByRole('banner').getByRole('button', { name: 'Settings' }).click()
   await expect(page.locator('.settings-dialog')).toBeVisible()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+})
+
+test('supports touch drag on phone preview items', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+  const mode = await page.locator('.app-shell').getAttribute('data-workspace-mode')
+  test.skip(mode !== 'phone', 'phone-only touch drag coverage')
+
+  const item = page.locator('.source-bbox').first()
+  await expect(item).toBeVisible()
+  const before = await item.boundingBox()
+  expect(before).not.toBeNull()
+  if (!before) return
+
+  await page.evaluate(({ x1, y1, x2, y2 }) => {
+    const target = document.elementFromPoint(x1, y1) as HTMLElement | null
+    if (!target) throw new Error('missing touch target')
+
+    function makeTouch(x: number, y: number) {
+      return new Touch({ identifier: 1, target, clientX: x, clientY: y, screenX: x, screenY: y, pageX: x, pageY: y })
+    }
+
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [makeTouch(x1, y1)],
+      targetTouches: [makeTouch(x1, y1)],
+      changedTouches: [makeTouch(x1, y1)],
+    }))
+    target.dispatchEvent(new TouchEvent('touchmove', {
+      bubbles: true,
+      cancelable: true,
+      touches: [makeTouch(x2, y2)],
+      targetTouches: [makeTouch(x2, y2)],
+      changedTouches: [makeTouch(x2, y2)],
+    }))
+    target.dispatchEvent(new TouchEvent('touchend', {
+      bubbles: true,
+      cancelable: true,
+      touches: [],
+      targetTouches: [],
+      changedTouches: [makeTouch(x2, y2)],
+    }))
+  }, {
+    x1: before.x + Math.min(before.width / 2, 40),
+    y1: before.y + Math.min(before.height - 8, Math.max(16, before.height * 0.75)),
+    x2: before.x + Math.min(before.width / 2, 40) + 36,
+    y2: before.y + Math.min(before.height - 8, Math.max(16, before.height * 0.75)) + 18,
+  })
+
+  await expect.poll(async () => {
+    const after = await item.boundingBox()
+    return after ? after.x - before.x : 0
+  }).toBeGreaterThan(8)
+})
+
+test('keeps phone preview context menu reachable and dismissible', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+  const mode = await page.locator('.app-shell').getAttribute('data-workspace-mode')
+  test.skip(mode !== 'phone', 'phone-only context menu coverage')
+
+  const item = page.locator('.source-bbox').first()
+  await expect(item).toBeVisible()
+  const box = await item.boundingBox()
+  expect(box).not.toBeNull()
+  if (!box) return
+
+  await page.evaluate(({ x, y }) => {
+    const target = document.querySelector<HTMLElement>('.source-bbox')
+    if (!target) throw new Error('missing source bbox')
+    const touch = new Touch({ identifier: 1, target, clientX: x, clientY: y, screenX: x, screenY: y, pageX: x, pageY: y })
+    target.dispatchEvent(new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [touch],
+      targetTouches: [touch],
+      changedTouches: [touch],
+    }))
+  }, {
+    x: box.x + Math.min(box.width - 4, Math.max(4, box.width / 2)),
+    y: await page.evaluate(() => window.innerHeight - 4),
+  })
+
+  const menu = page.locator('.preview-context-menu')
+  await expect(menu).toBeVisible()
+  const menuBox = await menu.boundingBox()
+  expect(menuBox).not.toBeNull()
+  if (!menuBox) return
+  const viewport = page.viewportSize()
+  expect(viewport).not.toBeNull()
+  if (!viewport) return
+  expect(menuBox.x).toBeGreaterThanOrEqual(0)
+  expect(menuBox.y).toBeGreaterThanOrEqual(0)
+  expect(menuBox.x + menuBox.width).toBeLessThanOrEqual(viewport.width + 1)
+  expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(viewport.height + 1)
+
+  await menu.getByRole('button', { name: 'Close' }).click()
+  await expect(menu).toBeHidden()
+})
+
+test('keeps phone settings actions inside the visible viewport', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+  const mode = await page.locator('.app-shell').getAttribute('data-workspace-mode')
+  test.skip(mode !== 'phone', 'phone-only settings dialog coverage')
+
+  await page.getByRole('banner').getByRole('button', { name: 'Settings' }).click()
+  const dialog = page.locator('.settings-dialog')
+  await expect(dialog).toBeVisible()
+  const issues = await page.evaluate(() => {
+    const result: string[] = []
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
+    for (const selector of ['.settings-dialog', '.settings-header', '.settings-content', '.settings-footer']) {
+      const el = document.querySelector<HTMLElement>(selector)
+      if (!el) {
+        result.push(`missing ${selector}`)
+        continue
+      }
+      const rect = el.getBoundingClientRect()
+      if (rect.left < -1 || rect.top < -1 || rect.right > viewport.width + 1 || rect.bottom > viewport.height + 1) {
+        result.push(`${selector} outside viewport ${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.right)},${Math.round(rect.bottom)} of ${viewport.width}x${viewport.height}`)
+      }
+    }
+    for (const button of Array.from(document.querySelectorAll<HTMLElement>('.settings-footer button, .settings-header button'))) {
+      const rect = button.getBoundingClientRect()
+      if (rect.left < -1 || rect.top < -1 || rect.right > viewport.width + 1 || rect.bottom > viewport.height + 1) {
+        result.push(`button outside viewport ${button.textContent?.trim()} ${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.right)},${Math.round(rect.bottom)}`)
+      }
+    }
+    return result
+  })
+  expect(issues).toEqual([])
   await page.getByRole('button', { name: 'Cancel' }).click()
 })
 
@@ -1060,6 +1210,140 @@ async function expectWorkspaceNotBroken(page: Page) {
   })
   expect(issues).toEqual([])
 }
+
+async function expectPhoneWorkspaceNotBroken(page: Page) {
+  const issues = await page.evaluate(() => {
+    const result: string[] = []
+    const viewport = { width: window.innerWidth, height: window.innerHeight }
+    const doc = document.documentElement
+    const shell = document.querySelector<HTMLElement>('.app-shell')
+    const mode = shell?.dataset.workspaceMode
+    const panelOpen = shell?.dataset.phonePanelOpen === 'true'
+
+    if (mode !== 'phone') result.push(`expected phone mode, got ${mode}`)
+    if (doc.scrollWidth > viewport.width + 2) result.push(`document horizontal overflow ${doc.scrollWidth} > ${viewport.width}`)
+    if (doc.scrollHeight > viewport.height + 2) result.push(`document vertical overflow ${doc.scrollHeight} > ${viewport.height}`)
+
+    function box(selector: string, minWidth: number, minHeight: number) {
+      const el = document.querySelector<HTMLElement>(selector)
+      if (!el) {
+        result.push(`missing ${selector}`)
+        return null
+      }
+      const rect = el.getBoundingClientRect()
+      const style = window.getComputedStyle(el)
+      if (style.display === 'none' || style.visibility === 'hidden') result.push(`${selector} hidden`)
+      if (rect.width < minWidth || rect.height < minHeight) result.push(`${selector} collapsed ${Math.round(rect.width)}x${Math.round(rect.height)}`)
+      if (rect.left < -2 || rect.top < -2 || rect.right > viewport.width + 2 || rect.bottom > viewport.height + 2) {
+        result.push(`${selector} outside viewport ${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.right)},${Math.round(rect.bottom)} of ${viewport.width}x${viewport.height}`)
+      }
+      return rect
+    }
+
+    function overlap(a: DOMRect | null, b: DOMRect | null) {
+      if (!a || !b) return 0
+      const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left))
+      const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top))
+      return width * height
+    }
+
+    function fmt(rect: DOMRect | null) {
+      if (!rect) return 'missing'
+      return `${Math.round(rect.left)},${Math.round(rect.top)},${Math.round(rect.right)},${Math.round(rect.bottom)} ${Math.round(rect.width)}x${Math.round(rect.height)}`
+    }
+
+    const landscape = viewport.width > viewport.height
+    const topbar = box('.obs-topbar', Math.min(320, viewport.width - 2), landscape ? 32 : 40)
+    const layout = box('.obs-layout', Math.min(300, viewport.width - 2), Math.min(220, viewport.height - 80))
+    const stage = box('.obs-center-stage', landscape ? 220 : 180, landscape ? 180 : 180)
+    const toolbar = box('.obs-stage-toolbar', landscape ? 220 : 160, landscape ? 28 : 40)
+    const preview = box('.preview-screen', landscape ? 200 : 160, landscape ? 110 : 90)
+    const panel = panelOpen || !landscape ? box('.adaptive-panel-shell', landscape ? 280 : 280, landscape ? 180 : 190) : null
+    const nav = box('.phone-bottom-nav', landscape ? 54 : Math.min(320, viewport.width - 2), landscape ? viewport.height - 24 : 44)
+    const mobileStatus = box('.mobile-statusbar', landscape ? 320 : Math.min(320, viewport.width - 2), landscape ? 16 : 22)
+
+    const mobileStatusText = document.querySelector<HTMLElement>('.mobile-statusbar')?.textContent ?? ''
+    for (const label of ['Status', 'FPS', 'Bitrate', 'CPU', 'GPU']) {
+      if (!mobileStatusText.includes(label)) result.push(`mobile status missing ${label}`)
+    }
+
+    if (landscape && !panelOpen) {
+      const panelEl = document.querySelector<HTMLElement>('.adaptive-panel-shell')
+      const style = panelEl ? window.getComputedStyle(panelEl) : null
+      if (!panelEl) result.push('missing .adaptive-panel-shell')
+      if (style && style.visibility !== 'hidden') result.push(`landscape drawer should start hidden, got ${style.visibility}`)
+      if (preview && preview.width < viewport.width * 0.58) result.push(`landscape preview too small: ${fmt(preview)}`)
+    }
+
+    if (!landscape && overlap(preview, panel) > 2) result.push(`preview overlaps adaptive panel preview=${fmt(preview)} panel=${fmt(panel)}`)
+    if (landscape && overlap(toolbar, preview) > 2) result.push(`toolbar overlaps preview toolbar=${fmt(toolbar)} preview=${fmt(preview)}`)
+    if (overlap(stage, nav) > 2) result.push(`stage overlaps phone navigation stage=${fmt(stage)} nav=${fmt(nav)}`)
+    if (overlap(panel, nav) > 2) result.push(`adaptive panel overlaps phone navigation panel=${fmt(panel)} nav=${fmt(nav)}`)
+    if (overlap(preview, mobileStatus) > 2) result.push(`preview overlaps mobile status preview=${fmt(preview)} status=${fmt(mobileStatus)}`)
+    if (overlap(nav, mobileStatus) > 2) result.push(`phone navigation overlaps mobile status nav=${fmt(nav)} status=${fmt(mobileStatus)}`)
+    if (mobileStatus && mobileStatus.bottom < viewport.height - 2) result.push(`mobile status not pinned to bottom status=${fmt(mobileStatus)} viewport=${viewport.width}x${viewport.height}`)
+
+    if (landscape) {
+      if (panel && nav && panel.right > nav.left + 2) result.push(`landscape drawer overlaps navigation panel=${fmt(panel)} nav=${fmt(nav)}`)
+      if (nav && nav.width > 96) result.push(`landscape nav too wide: ${Math.round(nav.width)}`)
+    } else if (panel && stage && panel.top < stage.bottom - 2) {
+      result.push(`portrait panel is not below stage stage=${fmt(stage)} panel=${fmt(panel)}`)
+    }
+
+    for (const [index, el] of Array.from(document.querySelectorAll<HTMLElement>('button, input, select')).entries()) {
+      const style = window.getComputedStyle(el)
+      if (style.display === 'none' || style.visibility === 'hidden') continue
+      const rect = el.getBoundingClientRect()
+      if (rect.width > viewport.width + 2) {
+        const label = el.getAttribute('aria-label') || el.textContent?.trim().replace(/\s+/g, ' ').slice(0, 80) || el.tagName.toLowerCase()
+        result.push(`control[${index}] wider than viewport ${Math.round(rect.width)}px ${el.tagName.toLowerCase()}.${el.className || ''} "${label}"`)
+      }
+    }
+
+    if (topbar && layout && topbar.bottom > layout.top + 2) result.push('topbar overlaps workspace')
+    return result
+  })
+
+  expect(issues).toEqual([])
+}
+
+test('keeps 21:9 phone layout usable in both orientations', async ({ page }) => {
+  await installMockSocket(page, 'design-stress')
+  await page.goto('/')
+
+  const mode = await page.locator('.app-shell').getAttribute('data-workspace-mode')
+  test.skip(mode !== 'phone', 'phone-only 21:9 responsive coverage')
+
+  await expect(page.locator('.phone-bottom-nav')).toBeVisible()
+  const landscape = await page.evaluate(() => window.innerWidth > window.innerHeight)
+  if (landscape) {
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-phone-panel-open', 'false')
+    await expect(page.locator('.adaptive-panel-shell')).toBeHidden()
+  } else {
+    await expect(page.locator('.adaptive-panel-shell')).toBeVisible()
+  }
+  await expectPhoneWorkspaceNotBroken(page)
+
+  await page.locator('.phone-bottom-nav').getByRole('button', { name: 'Sources' }).click()
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-phone-panel-open', 'true')
+  await expect(page.locator('.adaptive-panel-shell')).toBeVisible()
+  await expect(page.locator('.adaptive-panel-shell')).toHaveAttribute('aria-label', /Sources/)
+  if (landscape) {
+    await expect.poll(async () => page.evaluate(() => {
+      const panel = document.querySelector<HTMLElement>('.adaptive-panel-shell')?.getBoundingClientRect()
+      const nav = document.querySelector<HTMLElement>('.phone-bottom-nav')?.getBoundingClientRect()
+      return Boolean(panel && nav && panel.right <= nav.left + 2)
+    })).toBe(true)
+  }
+  await expectPhoneWorkspaceNotBroken(page)
+
+  if (landscape) {
+    await page.locator('.adaptive-panel-close').click()
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-phone-panel-open', 'false')
+    await expect(page.locator('.adaptive-panel-shell')).toBeHidden()
+    await expectPhoneWorkspaceNotBroken(page)
+  }
+})
 
 test('survives legal-input design stress without layout breakage', async ({ page }) => {
   const pageErrors: string[] = []
