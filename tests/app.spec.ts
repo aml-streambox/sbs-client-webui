@@ -96,8 +96,15 @@ async function installMockSocket(page: Page, scenario = 'default') {
         fields: [{ key: 'pattern', label: 'Pattern', type: 'select', default: 'smpte', options: ['smpte', 'ball', 'snow', 'pinwheel'] }],
       },
       {
-        id: 'vfmcap', name: 'VFM Capture', summary: 'Direct libvfmcap HDMI capture passthrough', pausable: false,
-        fields: [{ key: 'output_format', label: 'Output Format', type: 'select', default: 'raw', options: ['raw'] }],
+        id: 'vfmcap', name: 'HDMI in capture', summary: 'Board HDMI input video capture', pausable: false,
+        fields: [
+          { key: 'device', label: 'Device Path', type: 'string', default: '/dev/video_cap' },
+          { key: 'output_format', label: 'Output Format', type: 'select', default: 'raw', options: ['raw'] },
+        ],
+      },
+      {
+        id: 'alsa_audio', name: 'ALSA Audio Input', summary: 'Audio-only input from an ALSA PCM device', pausable: false,
+        fields: [{ key: 'device', label: 'ALSA Device', type: 'string', default: 'hdmi_auto' }],
       },
       {
         id: 'v4l2src', name: 'V4L2 Device', summary: 'Linux V4L2 video capture device', pausable: false,
@@ -278,6 +285,28 @@ async function installMockSocket(page: Page, scenario = 'default') {
           const kind = sourceKinds.find((entry) => entry.id === requestParams.kind)
           respond({
             jsonrpc: '2.0', id: request.id, result: { kind },
+          })
+          return
+        }
+
+        if (method === 'source.discoverALSA') {
+          respond({
+            jsonrpc: '2.0', id: request.id, result: {
+              devices: [
+                { id: 'alsa-0-0', card: 0, device_index: 0, card_id: 'AML', name: 'Line In', display_name: 'Line In (plughw:AML,0)', device: 'plughw:AML,0', hw_device: 'hw:0,0', usb_id: '', usb: false, type_hints: [] },
+                { id: 'alsa-0-2', card: 0, device_index: 2, card_id: 'AML', name: 'HDMI RX Direct', display_name: 'HDMI RX Direct (plughw:AML,2)', device: 'plughw:AML,2', hw_device: 'hw:0,2', usb_id: '', usb: false, type_hints: [] },
+                { id: 'alsa-0-6', card: 0, device_index: 6, card_id: 'AML', name: 'HDMI RX Passthrough', display_name: 'HDMI RX Passthrough (plughw:AML,6)', device: 'plughw:AML,6', hw_device: 'hw:0,6', usb_id: '', usb: false, type_hints: [] },
+                { id: 'alsa-1-0', card: 1, device_index: 0, card_id: 'USBMic', name: 'USB UVC Microphone', display_name: 'USB UVC Microphone (plughw:USBMic,0)', device: 'plughw:USBMic,0', hw_device: 'hw:1,0', usb_id: '1234:5678', usb: true, type_hints: ['usb'] },
+              ],
+              hdmi: {
+                streambox_tv_active: true,
+                tvserver_active: false,
+                hdmitx_ready: true,
+                hdmitx_enabled: true,
+                hdmitx_passthrough: true,
+                hdmitx_mode: '3840x2160p60hz',
+              },
+            },
           })
           return
         }
@@ -1137,6 +1166,40 @@ test('creates and deletes scene, source, and output from direct controls', async
 
   await deskCam.getByRole('button', { name: 'Delete' }).click()
   await expect(page.locator('.source-item', { hasText: 'Desk Cam' })).toHaveCount(0)
+})
+
+test('guides HDMI capture and ALSA source setup', async ({ page }) => {
+  await installMockSocket(page)
+  await page.goto('/')
+
+  await page.getByRole('button', { name: '+ Source' }).click()
+  await page.locator('.source-kind-card', { hasText: 'HDMI in capture' }).click()
+  await expect(page.locator('.source-config-dialog')).toBeVisible()
+  await expect(page.getByText('Uses the board HDMI input with raw capture defaults.')).toBeVisible()
+  await expect(page.locator('.source-create-row', { hasText: 'Output Format' })).toHaveCount(0)
+  await page.getByLabel('Show advanced options').check()
+  await expect(page.locator('.source-create-row', { hasText: 'Output Format' })).toBeVisible()
+  await page.getByRole('button', { name: 'Create Source' }).click()
+  await expect(page.locator('.source-item', { hasText: 'HDMI in capture' })).toBeVisible()
+
+  await page.getByRole('button', { name: '+ Source' }).click()
+  await page.locator('.source-kind-card', { hasText: 'ALSA Audio Input' }).click()
+  await expect(page.locator('.source-config-dialog')).toBeVisible()
+  await expect(page.getByText('HDMI in capture audio')).toBeVisible()
+  await expect(page.getByText('HDMI in capture audio - direct')).toHaveCount(0)
+  await expect(page.getByText('HDMI in capture audio - passthrough')).toHaveCount(0)
+  await expect(page.getByText('USB UVC Microphone')).toBeVisible()
+  await expect(page.getByText(/streambox-tv active/)).toHaveCount(0)
+  await page.getByLabel('Show advanced options').check()
+  await page.getByRole('button', { name: 'Manual' }).click()
+  await expect(page.locator('.source-create-row', { hasText: 'Detected Device' })).toBeVisible()
+  await page.locator('.source-create-row', { hasText: 'Detected Device' }).locator('select').selectOption('plughw:USBMic,0')
+  await expect(page.locator('.source-create-row', { hasText: 'Manual Device' }).locator('input')).toHaveValue('plughw:USBMic,0')
+  await page.getByRole('button', { name: 'Guided' }).click()
+  await page.locator('.source-guided-option', { hasText: 'Line in' }).click()
+  await page.locator('.source-create-row').filter({ hasText: 'Name' }).locator('input').fill('Line Audio')
+  await page.getByRole('button', { name: 'Create Source' }).click()
+  await expect(page.locator('.source-item', { hasText: 'Line Audio' })).toBeVisible()
 })
 
 test('supports keyboard shortcuts for scene switch and snapshot', async ({ page }) => {

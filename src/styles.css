@@ -721,6 +721,99 @@ select {
   font-size: 10px;
   line-height: 1.25;
 }
+.source-field-hint.ok { color: var(--good); }
+.source-field-hint.warn { color: var(--warn); }
+.source-toggle-row { align-items: flex-start; }
+.source-inline-checkbox {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text) !important;
+  font-size: 11px !important;
+}
+.source-inline-checkbox input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: auto;
+}
+.source-guided-note {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: rgba(83,111,240,0.08);
+}
+.source-guided-note strong { font-size: 12px; }
+.source-guided-note small { color: var(--muted); font-size: 10px; line-height: 1.3; }
+.source-guided-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 6px;
+}
+.source-guided-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  padding: 8px;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+}
+.source-guided-option:hover { border-color: var(--accent); }
+.source-guided-option.selected {
+  border-color: var(--accent);
+  background: rgba(83,111,240,0.14);
+}
+.source-guided-option strong { color: var(--text); font-size: 12px; }
+.source-guided-option span { color: var(--accent); font-size: 11px; }
+.source-guided-option small { color: var(--muted); font-size: 10px; line-height: 1.25; }
+.source-guided-option small.ok { color: var(--good); }
+.source-guided-option small.warn { color: var(--warn); }
+.source-edit-form .source-guided-options {
+  grid-template-columns: 1fr;
+  gap: 3px;
+}
+.source-edit-form .source-guided-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+}
+.source-edit-form .source-guided-option strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.source-edit-form .source-guided-option span {
+  font-size: 10px;
+}
+.source-edit-form .source-guided-option small {
+  display: none;
+}
+.source-edit-form .source-guided-option small.ok,
+.source-edit-form .source-guided-option small.warn {
+  display: block;
+  white-space: nowrap;
+  font-size: 9px;
+}
+.source-mode-buttons {
+  display: flex;
+  flex: 1;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.source-mode-buttons button.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(83,111,240,0.16);
+}
 .asset-field-wrap {
   display: flex;
   flex: 1;

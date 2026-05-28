@@ -115,6 +115,18 @@ export interface ALSADevice {
   display_name: string
   device: string
   hw_device: string
+  usb_id?: string
+  usb?: boolean
+  type_hints?: string[]
+}
+
+export interface ALSAHDMIStatus {
+  streambox_tv_active: boolean
+  tvserver_active: boolean
+  hdmitx_ready: boolean
+  hdmitx_enabled: boolean
+  hdmitx_passthrough: boolean
+  hdmitx_mode: string
 }
 
 export interface InstanceSummary {

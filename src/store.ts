@@ -1,5 +1,5 @@
 import { SbsClientApi, defaultApiHost, defaultApiUrl, defaultInstanceId } from './api'
-import type { ALSADevice, AppState, InstanceSummary, PreviewProfile, PubSubEvent, SourceKind, V4L2Device } from './types'
+import type { ALSADevice, ALSAHDMIStatus, AppState, InstanceSummary, PreviewProfile, PubSubEvent, SourceKind, V4L2Device } from './types'
 
 const listeners = new Set<() => void>()
 const instanceId = defaultInstanceId()
@@ -561,7 +561,7 @@ export async function discoverV4L2() {
 }
 
 export async function discoverALSA() {
-  return api.rpc<{ devices: ALSADevice[] }>('source.discoverALSA')
+  return api.rpc<{ devices: ALSADevice[]; hdmi?: ALSAHDMIStatus }>('source.discoverALSA')
 }
 
 export async function uploadSourceAsset(assetKind: 'image' | 'media' | 'font', filename: string, dataBase64: string) {

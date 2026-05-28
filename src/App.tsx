@@ -3,7 +3,7 @@ import Hls from 'hls.js'
 import { addFilter, addSceneFilter, addSceneItem, applyCanvas, captureSnapshot, connectStore, createApiKey, createInstance, createOutput, createScene, createSource, deleteApiKey, describeSourceKind, discoverALSA, discoverV4L2, disableInstance, enableInstance, exportConfigBundle, getDebugLogs, getEncoderConfig, getPreviewEncoderConfig, getState, importConfigBundle, listApiKeys, listSourceKinds, loginApiKey, loginAuth, logoutAuth, refreshState, removeFilter, removeInstance, removeOutput, removeScene, removeSceneFilter, removeSceneItem, removeSource, reorderSceneItems, restartInstance, runCommand, selectSceneItem, selectSource, setActiveScene, setEditingSourceId, setMasterAudio, setPasswordlessAuth, setPreviewScene, setSceneItemAudio, setupAuth, startPreviewSession, subscribe, transitionToPreview, updateAuthCredentials, updateCanvas, updateEncoderConfig, updateFilter, updateInstance, updateOutput, updatePreviewEncoderConfig, updateSceneFilter, updateSceneItem, updateSceneItemTransform, updateSource, updateTransition, uploadSourceAsset } from './store'
 import { LANGUAGE_OPTIONS, loadLanguage, saveLanguage, translate, type Language, type TranslationValues } from './i18n'
 
-import type { ALSADevice, SourceKind, SourceKindField, V4L2Device, V4L2Format, V4L2FrameInterval, V4L2Resolution } from './types'
+import type { ALSADevice, ALSAHDMIStatus, SourceKind, SourceKindField, V4L2Device, V4L2Format, V4L2FrameInterval, V4L2Resolution } from './types'
 
 type DockRegion = 'left' | 'right' | 'bottom'
 type DockPanel = 'scenes' | 'sources' | 'controls' | 'mixer' | 'transitions'
@@ -12,6 +12,16 @@ type PhoneSection = 'scenes' | 'sources' | 'audio' | 'outputs' | 'more'
 type ResizeKey = 'leftWidth' | 'rightWidth' | 'bottomHeight' | 'leftTopRatio' | 'bottomLeftRatio'
 type DockLayout = Record<DockRegion, DockPanel[]>
 type AudioFilterType = 'channel_gain' | 'delay' | 'eq'
+type ALSAConfigMode = 'guided' | 'manual'
+
+interface ALSAGuidedOption {
+  id: string
+  label: string
+  device: string
+  detail?: string
+  hint: string
+  detected?: boolean
+}
 
 const DOCK_STORAGE_KEY = 'sbs-webui-dock-layout-v1'
 const DOCK_SIZE_STORAGE_KEY = 'sbs-webui-dock-sizes-v1'
@@ -34,6 +44,8 @@ const PREVIEW_TARGET_HEIGHT = 720
 const PREVIEW_DOWNSCALE_FACTORS = [1, 2, 3, 4, 5, 6, 8]
 const EQ_BAND_LABELS = ['31 Hz', '62 Hz', '125 Hz', '250 Hz', '500 Hz', '1 kHz', '2 kHz', '4 kHz', '8 kHz', '16 kHz']
 const FILE_OUTPUT_TYPES = ['ts', 'mkv', 'flv', 'mp4']
+const ALSA_HDMI_AUTO_DEVICE = 'hdmi_auto'
+const ALSA_BUILTIN_DEVICE_VALUES = new Set(['hw:0,0', 'hw:0,2', 'hw:0,6'])
 
 function canvasPixelFormat(canvas: any): string {
   if (canvas?.pixel_format) return String(canvas.pixel_format)
@@ -265,7 +277,12 @@ export default function App() {
   const [v4l2Devices, setV4l2Devices] = useState<V4L2Device[]>([])
   const [v4l2DiscoveryStatus, setV4l2DiscoveryStatus] = useState('')
   const [alsaDevices, setAlsaDevices] = useState<ALSADevice[]>([])
+  const [alsaHdmiStatus, setAlsaHdmiStatus] = useState<ALSAHDMIStatus | null>(null)
   const [alsaDiscoveryStatus, setAlsaDiscoveryStatus] = useState('')
+  const [sourceCreateAdvanced, setSourceCreateAdvanced] = useState(false)
+  const [sourceEditAdvanced, setSourceEditAdvanced] = useState(false)
+  const [sourceCreateALSAMode, setSourceCreateALSAMode] = useState<ALSAConfigMode>('guided')
+  const [sourceEditALSAMode, setSourceEditALSAMode] = useState<ALSAConfigMode>('guided')
   const [assetUploadStatus, setAssetUploadStatus] = useState<Record<string, { state: 'reading' | 'uploading' | 'done' | 'error'; message: string }>>({})
   const [previewController, setPreviewController] = useState<{ stop: () => Promise<void> } | null>(null)
   const [dockLayout, setDockLayout] = useState<DockLayout>(() => loadDockLayout())
@@ -1259,6 +1276,8 @@ export default function App() {
       setSourceCreateKind(result.kinds[0]?.id ?? 'videotestsrc')
       setSourceCreateName(`${t('Source')} ${sourceEntries.length + 1}`)
       setSourceCreateConfig({})
+      setSourceCreateAdvanced(false)
+      setSourceCreateALSAMode('guided')
       setAssetUploadStatus({})
       setSourceCreateOpen(true)
       setSourceConfigOpen(false)
@@ -1359,18 +1378,90 @@ export default function App() {
     }
   }
 
-  function alsaDeviceForConfig(config: Record<string, string>, devices = alsaDevices) {
-    const value = config.device || 'hw:0,2'
+  function alsaDeviceForValue(value: string, devices = alsaDevices) {
     return devices.find((device) => device.device === value || device.hw_device === value) ?? null
+  }
+
+  function alsaDeviceForConfig(config: Record<string, string>, devices = alsaDevices) {
+    return alsaDeviceForValue(config.device || 'hw:0,2', devices)
+  }
+
+  function isUSBALSADevice(device: ALSADevice | null | undefined) {
+    if (!device) return false
+    if (device.usb || (device.type_hints ?? []).includes('usb')) return true
+    const text = `${device.card_id} ${device.name} ${device.display_name} ${device.usb_id ?? ''}`.toLowerCase()
+    return text.includes('usb') || text.includes('uvc')
+  }
+
+  function canonicalALSAHwValue(value: string, devices = alsaDevices) {
+    return alsaDeviceForValue(value, devices)?.hw_device ?? value
+  }
+
+  function hdmiALSADeviceValue(devices = alsaDevices) {
+    return alsaHdmiStatus?.hdmitx_passthrough ? 'hw:0,6' : 'hw:0,2'
+  }
+
+  function alsaGuidedOptions(devices = alsaDevices): ALSAGuidedOption[] {
+    const builtinOptions: ALSAGuidedOption[] = [
+      {
+        id: 'line-in',
+        label: t('Line in'),
+        device: 'hw:0,0',
+        hint: t('Analog line input on the board.'),
+        detected: Boolean(alsaDeviceForValue('hw:0,0', devices)),
+      },
+      {
+        id: 'hdmi-input',
+        label: t('HDMI in capture audio'),
+        device: ALSA_HDMI_AUTO_DEVICE,
+        detail: t('Automatic'),
+        hint: t('SBS automatically chooses the correct HDMI audio path.'),
+        detected: Boolean(alsaDeviceForValue(hdmiALSADeviceValue(devices), devices)),
+      },
+    ]
+    const usbOptions = devices
+      .filter((device) => isUSBALSADevice(device) && !ALSA_BUILTIN_DEVICE_VALUES.has(device.hw_device))
+      .map((device) => ({
+        id: device.id,
+        label: device.display_name || device.name || device.device,
+        device: device.device,
+        hint: t('USB capture audio device.'),
+        detected: true,
+      }))
+    return [...builtinOptions, ...usbOptions]
+  }
+
+  function guidedALSADeviceValue(config: Record<string, string>, devices = alsaDevices) {
+    const value = config.device || 'hw:0,2'
+    const hwValue = canonicalALSAHwValue(value, devices)
+    if (value === ALSA_HDMI_AUTO_DEVICE || hwValue === 'hw:0,2' || hwValue === 'hw:0,6') return ALSA_HDMI_AUTO_DEVICE
+    if (hwValue === 'hw:0,0') return hwValue
+    return alsaGuidedOptions(devices).some((option) => option.device === value) ? value : ALSA_HDMI_AUTO_DEVICE
+  }
+
+  function alsaModeForConfig(config: Record<string, string>, devices = alsaDevices): ALSAConfigMode {
+    const value = config.device || ''
+    if (!value) return 'guided'
+    if (value === ALSA_HDMI_AUTO_DEVICE) return 'guided'
+    const hwValue = canonicalALSAHwValue(value, devices)
+    if (ALSA_BUILTIN_DEVICE_VALUES.has(hwValue)) return 'guided'
+    return isUSBALSADevice(alsaDeviceForValue(value, devices)) ? 'guided' : 'manual'
   }
 
   function applyALSADefaults(config: Record<string, string>, devices = alsaDevices) {
     const next = { ...config }
+    const hwValue = canonicalALSAHwValue(next.device || '', devices)
+    if (!next.device || next.device === ALSA_HDMI_AUTO_DEVICE || hwValue === 'hw:0,2' || hwValue === 'hw:0,6') {
+      next.device = ALSA_HDMI_AUTO_DEVICE
+      return next
+    }
+    if (hwValue === 'hw:0,0') {
+      next.device = hwValue
+      return next
+    }
     const device = alsaDeviceForConfig(next, devices) ?? devices[0] ?? null
     if (device) {
-      next.device = device.device
-    } else if (!next.device) {
-      next.device = 'hw:0,2'
+      next.device = ALSA_BUILTIN_DEVICE_VALUES.has(device.hw_device) ? device.hw_device : device.device
     }
     return next
   }
@@ -1381,10 +1472,12 @@ export default function App() {
       const result = await discoverALSA()
       const devices = result.devices ?? []
       setAlsaDevices(devices)
+      setAlsaHdmiStatus(result.hdmi ?? null)
       setAlsaDiscoveryStatus(devices.length > 0 ? t(devices.length === 1 ? '{count} ALSA capture device detected' : '{count} ALSA capture devices detected', { count: devices.length }) : t('No ALSA capture devices detected'))
       return devices
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
+      setAlsaHdmiStatus(null)
       setAlsaDiscoveryStatus(t('ALSA discovery failed: {message}', { message }))
       return []
     }
@@ -1413,13 +1506,16 @@ export default function App() {
       const kind = await loadSourceKind(kindId)
       const devices = kind.id === 'v4l2src' ? await loadV4L2Devices() : v4l2Devices
       const audioDevices = kind.id === 'alsa_audio' ? await loadALSADevices() : alsaDevices
-      setSourceCreateKind(kind.id)
-      setSourceCreateName((name) => name || `${kind.name} ${sourceEntries.length + 1}`)
-      setSourceCreateConfig(kind.id === 'v4l2src'
+      const nextConfig = kind.id === 'v4l2src'
         ? applyV4L2Defaults(sourceKindDefaults(kind), devices)
         : kind.id === 'alsa_audio'
           ? applyALSADefaults(sourceKindDefaults(kind), audioDevices)
-          : sourceKindDefaults(kind))
+          : sourceKindDefaults(kind)
+      setSourceCreateKind(kind.id)
+      setSourceCreateName((name) => kind.id === 'vfmcap' ? kind.name : name || `${kind.name} ${sourceEntries.length + 1}`)
+      setSourceCreateConfig(nextConfig)
+      setSourceCreateAdvanced(false)
+      setSourceCreateALSAMode(kind.id === 'alsa_audio' ? alsaModeForConfig(nextConfig, audioDevices) : 'guided')
       setAssetUploadStatus({})
       setSourceCreateOpen(false)
       setSourceConfigOpen(true)
@@ -1437,6 +1533,13 @@ export default function App() {
       for (const [key, val] of Object.entries(sourceCreateConfig)) {
         if (val !== undefined && val !== '') config[key] = val
       }
+    } else if (kind?.id === 'vfmcap' && !sourceCreateAdvanced) {
+      // The board HDMI input has a single normal path; omit default knobs unless advanced is enabled.
+    } else if (kind?.id === 'alsa_audio') {
+      const val = sourceCreateAdvanced && sourceCreateALSAMode === 'manual'
+        ? sourceCreateConfig.device
+        : guidedALSADeviceValue(sourceCreateConfig)
+      if (val !== undefined && val !== '') config.device = val
     } else if (kind) {
       for (const field of kind.fields ?? []) {
         const val = sourceCreateConfig[field.key]
@@ -1463,11 +1566,15 @@ export default function App() {
       setSourceEditName(source.name)
       setSourceEditEnabled(source.enabled !== false)
       const config = { ...sourceKindDefaults(kind), ...(source.config ?? {}) }
-      setSourceEditConfig(kind.id === 'v4l2src'
+      const nextConfig = kind.id === 'v4l2src'
         ? applyV4L2Defaults(config, devices)
         : kind.id === 'alsa_audio'
           ? applyALSADefaults(config, audioDevices)
-          : config)
+          : config
+      const alsaMode = kind.id === 'alsa_audio' ? alsaModeForConfig(nextConfig, audioDevices) : 'guided'
+      setSourceEditConfig(nextConfig)
+      setSourceEditAdvanced(kind.id === 'alsa_audio' && alsaMode === 'manual')
+      setSourceEditALSAMode(alsaMode)
       setAssetUploadStatus({})
     } catch (error) {
       setStatus(String(error))
@@ -2133,44 +2240,156 @@ export default function App() {
     )
   }
 
-  function renderALSAConfigControls(
+  function renderSourceFieldRows(
+    fields: SourceKindField[] | undefined,
     config: Record<string, string>,
     setConfig: Dispatch<SetStateAction<Record<string, string>>>,
   ) {
-    const device = alsaDeviceForConfig(config)
+    return (fields ?? []).map((field) => (
+      <div key={field.key} className="source-create-row">
+        <label>{field.label}</label>
+        {renderSourceFieldInput(field, config, setConfig)}
+      </div>
+    ))
+  }
+
+  function renderAdvancedToggle(advanced: boolean, setAdvanced: Dispatch<SetStateAction<boolean>>) {
+    return (
+      <div className="source-create-row source-toggle-row">
+        <label>{t('Advanced')}</label>
+        <label className="source-inline-checkbox">
+          <input type="checkbox" checked={advanced} onChange={(event) => setAdvanced(event.target.checked)} />
+          <span>{t('Show advanced options')}</span>
+        </label>
+      </div>
+    )
+  }
+
+  function renderVfmcapConfigControls(
+    kind: SourceKind,
+    config: Record<string, string>,
+    setConfig: Dispatch<SetStateAction<Record<string, string>>>,
+    advanced: boolean,
+    setAdvanced: Dispatch<SetStateAction<boolean>>,
+  ) {
+    return (
+      <>
+        <div className="source-guided-note">
+          <strong>{t('HDMI in capture')}</strong>
+          <small>{t('Uses the board HDMI input with raw capture defaults. No setup is required on this board.')}</small>
+        </div>
+        {renderAdvancedToggle(advanced, setAdvanced)}
+        {advanced ? renderSourceFieldRows(kind.fields, config, setConfig) : null}
+      </>
+    )
+  }
+
+  function renderALSAConfigControls(
+    config: Record<string, string>,
+    setConfig: Dispatch<SetStateAction<Record<string, string>>>,
+    advanced: boolean,
+    setAdvanced: Dispatch<SetStateAction<boolean>>,
+    mode: ALSAConfigMode,
+    setMode: Dispatch<SetStateAction<ALSAConfigMode>>,
+  ) {
+    const effectiveMode = advanced ? mode : 'guided'
+    const guidedValue = guidedALSADeviceValue(config)
+    const options = alsaGuidedOptions()
 
     return (
       <>
-        <div className="source-create-row">
-          <label>{t('Detected Device')}</label>
-          <select
-            value={device?.device ?? ''}
-            onChange={(event) => {
-              const selected = alsaDevices.find((entry) => entry.device === event.target.value)
-              setConfig((prev) => ({ ...prev, device: selected?.device ?? prev.device ?? 'hw:0,2' }))
-            }}
-          >
-            <option value="">{t('Manual device')}</option>
-            {alsaDevices.map((entry) => (
-              <option key={entry.id} value={entry.device}>{entry.display_name || entry.device}</option>
-            ))}
-          </select>
-        </div>
-        <div className="source-create-row">
-          <label>{t('Manual Device')}</label>
-          <input
-            value={config.device ?? 'hw:0,2'}
-            onChange={(event) => setConfig((prev) => ({ ...prev, device: event.target.value }))}
-            placeholder="hw:1,0 or plughw:C920,0"
-          />
-        </div>
+        {effectiveMode === 'guided' ? (
+          <div className="source-guided-options">
+            {options.map((option) => {
+              const selected = guidedValue === option.device
+              const statusClass = option.detected ? 'ok' : 'warn'
+              const statusLabel = option.detected ? t('Detected') : t('Not detected')
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  className={`source-guided-option ${selected ? 'selected' : ''}`}
+                  onClick={() => {
+                    setMode('guided')
+                    setConfig((prev) => ({ ...prev, device: option.device }))
+                  }}
+                >
+                  <strong>{option.label}</strong>
+                  <span>{option.detail ?? option.device}</span>
+                  <small>{option.hint}</small>
+                  <small className={statusClass}>{statusLabel}</small>
+                </button>
+              )
+            })}
+          </div>
+        ) : (
+          <>
+            <div className="source-create-row">
+              <label>{t('Detected Device')}</label>
+              <select
+                value={alsaDeviceForConfig(config)?.device ?? ''}
+                onChange={(event) => {
+                  const selected = alsaDevices.find((entry) => entry.device === event.target.value)
+                  setConfig((prev) => ({ ...prev, device: selected?.device ?? prev.device ?? 'hw:0,2' }))
+                }}
+              >
+                <option value="">{t('Manual device')}</option>
+                {alsaDevices.map((entry) => (
+                  <option key={entry.id} value={entry.device}>{entry.display_name || entry.device}</option>
+                ))}
+              </select>
+            </div>
+            <div className="source-create-row">
+              <label>{t('Manual Device')}</label>
+              <input
+                value={config.device ?? 'hw:0,2'}
+                onChange={(event) => setConfig((prev) => ({ ...prev, device: event.target.value }))}
+                placeholder="hw:1,0 or plughw:C920,0"
+              />
+            </div>
+          </>
+        )}
         <div className="source-create-row source-create-row-inline">
           <label>{t('Discovery')}</label>
           <div className="source-field-stack">
-            <button type="button" onClick={() => loadALSADevices().then((devices) => setConfig((prev) => applyALSADefaults(prev, devices)))}>{t('Refresh Devices')}</button>
+            <button type="button" onClick={() => loadALSADevices().then((devices) => setConfig((prev) => effectiveMode === 'guided' ? applyALSADefaults(prev, devices) : prev))}>{t('Refresh Devices')}</button>
             <small className="source-field-hint">{alsaDiscoveryStatus || t('Use refresh to query target ALSA capture devices.')}</small>
           </div>
         </div>
+        <div className="source-create-row source-toggle-row">
+          <label>{t('Advanced')}</label>
+          <label className="source-inline-checkbox">
+            <input
+              type="checkbox"
+              checked={advanced}
+              onChange={(event) => {
+                const checked = event.target.checked
+                setAdvanced(checked)
+                if (!checked) {
+                  setMode('guided')
+                  setConfig((prev) => ({ ...prev, device: guidedALSADeviceValue(prev) }))
+                }
+              }}
+            />
+            <span>{t('Show advanced options')}</span>
+          </label>
+        </div>
+        {advanced ? (
+          <div className="source-create-row source-create-row-inline">
+            <label>{t('Audio Setup')}</label>
+            <div className="source-mode-buttons">
+              <button type="button" className={mode === 'guided' ? 'active' : ''} onClick={() => setMode('guided')}>{t('Guided')}</button>
+              <button
+                type="button"
+                className={mode === 'manual' ? 'active' : ''}
+                onClick={() => {
+                  setMode('manual')
+                  setConfig((prev) => prev.device === ALSA_HDMI_AUTO_DEVICE ? { ...prev, device: hdmiALSADeviceValue() } : prev)
+                }}
+              >{t('Manual')}</button>
+            </div>
+          </div>
+        ) : null}
       </>
     )
   }
@@ -2944,12 +3163,13 @@ export default function App() {
               <label>{t('Name')}</label>
               <input value={sourceCreateName} onChange={(event) => setSourceCreateName(event.target.value)} />
             </div>
-            {kind.id === 'v4l2src' ? renderV4L2ConfigControls(sourceCreateConfig, setSourceCreateConfig) : kind.id === 'alsa_audio' ? renderALSAConfigControls(sourceCreateConfig, setSourceCreateConfig) : (kind.fields ?? []).map((field) => (
-              <div key={field.key} className="source-create-row">
-                <label>{field.label}</label>
-                {renderSourceFieldInput(field, sourceCreateConfig, setSourceCreateConfig)}
-              </div>
-            ))}
+            {kind.id === 'v4l2src'
+              ? renderV4L2ConfigControls(sourceCreateConfig, setSourceCreateConfig)
+              : kind.id === 'vfmcap'
+                ? renderVfmcapConfigControls(kind, sourceCreateConfig, setSourceCreateConfig, sourceCreateAdvanced, setSourceCreateAdvanced)
+                : kind.id === 'alsa_audio'
+                  ? renderALSAConfigControls(sourceCreateConfig, setSourceCreateConfig, sourceCreateAdvanced, setSourceCreateAdvanced, sourceCreateALSAMode, setSourceCreateALSAMode)
+                  : renderSourceFieldRows(kind.fields, sourceCreateConfig, setSourceCreateConfig)}
           </div>
           <div className="settings-footer">
             <button onClick={() => { setSourceConfigOpen(false); setSourceCreateOpen(true) }}>{t('Back')}</button>
@@ -3445,14 +3665,10 @@ export default function App() {
                       const kind = sourceKinds.find((k) => k.id === kindId)
                       if (!kind) return null
                       if (kind.id === 'v4l2src') return renderV4L2ConfigControls(sourceEditConfig, setSourceEditConfig)
-                      if (kind.id === 'alsa_audio') return renderALSAConfigControls(sourceEditConfig, setSourceEditConfig)
+                      if (kind.id === 'vfmcap') return renderVfmcapConfigControls(kind, sourceEditConfig, setSourceEditConfig, sourceEditAdvanced, setSourceEditAdvanced)
+                      if (kind.id === 'alsa_audio') return renderALSAConfigControls(sourceEditConfig, setSourceEditConfig, sourceEditAdvanced, setSourceEditAdvanced, sourceEditALSAMode, setSourceEditALSAMode)
                       if ((kind.fields ?? []).length === 0) return null
-                      return (kind.fields ?? []).map((field) => (
-                        <div key={field.key} className="source-create-row">
-                          <label>{field.label}</label>
-                          {renderSourceFieldInput(field, sourceEditConfig, setSourceEditConfig)}
-                        </div>
-                      ))
+                      return renderSourceFieldRows(kind.fields, sourceEditConfig, setSourceEditConfig)
                     })()}
                     {(source as any).state === 'running' && (
                       <div className="source-edit-notice">{t('Changes to config may require restarting the source to take effect')}</div>
@@ -3460,7 +3676,11 @@ export default function App() {
                     <div className="button-row">
                       <button onClick={async () => {
                         const patch: Record<string, unknown> = { name: sourceEditName, enabled: sourceEditEnabled }
-                        if (Object.keys(sourceEditConfig).length > 0) patch.config = sourceEditConfig
+                        const kind = sourceKinds.find((entry) => entry.id === (source as any).type)
+                        const nextConfig = kind?.id === 'alsa_audio' && !(sourceEditAdvanced && sourceEditALSAMode === 'manual')
+                          ? { ...sourceEditConfig, device: guidedALSADeviceValue(sourceEditConfig) }
+                          : sourceEditConfig
+                        if (Object.keys(nextConfig).length > 0) patch.config = nextConfig
                         await updateSource(source.id, patch as any).catch((e) => setStatus(String(e)))
                         setEditingSourceId(null)
                         setStatus(t('Updated source: {name}', { name: sourceEditName }))
