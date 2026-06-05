@@ -896,8 +896,16 @@ async function startWebrtcPreview(profile: PreviewProfile, colorMode: 'hdr10' | 
       },
     }
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (colorMode === 'hdr10' && allowFallback && message.includes('WebRTC offer not available')) {
+      await api.rpc('preview.releaseProfile', { profile_id: profile.id }).catch(() => undefined)
+      state.previewStatus = 'connecting'
+      state.previewMessage = 'HDR10 WebRTC offer timed out; falling back to SDR reference preview...'
+      emit()
+      return startWebrtcPreview(profile, 'sdr_reference', false)
+    }
     state.previewStatus = 'error'
-    state.previewMessage = `WebRTC error: ${error instanceof Error ? error.message : String(error)}`
+    state.previewMessage = `WebRTC error: ${message}`
     emit()
     throw error
   }
