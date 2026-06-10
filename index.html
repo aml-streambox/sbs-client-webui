@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>SBS WebUI</title>
+    <script>
+      (() => {
+        if (window.location.protocol === 'https:') {
+          const url = new URL(window.location.href)
+          url.protocol = 'http:'
+          window.location.replace(url.toString())
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>
