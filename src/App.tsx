@@ -66,6 +66,11 @@ function normalizeOutputSinkType(sinkType?: string): string {
   return sinkType || 'srt'
 }
 
+function savedRtmpKeyLength(encoder?: Record<string, unknown> | null): number {
+  const length = Number(encoder?.rtmp_stream_key_length ?? encoder?.rtmp_passcode_length ?? 0)
+  return Number.isFinite(length) && length > 0 ? Math.floor(length) : 0
+}
+
 function previewEncoderAxis(canvasAxis: number, downscaleFactor: number): number {
   const factor = downscaleFactor > 0 ? downscaleFactor : DEFAULT_PREVIEW_DOWNSCALE_FACTOR
   const evenAxis = Math.max(2, Math.floor(canvasAxis / factor)) & ~1
@@ -2551,7 +2556,8 @@ export default function App() {
       srt_uri: enc.srt_uri || 'srt://:8888',
       srt_latency_ms: String(enc.srt_latency_ms || 600),
       rtmp_uri: enc.rtmp_uri || 'rtmp://localhost:1935/live/stream',
-      rtmp_passcode: enc.rtmp_passcode || '',
+      rtmp_plugin: enc.rtmp_plugin || 'legacy',
+      rtmp_passcode: '',
       file_path: enc.file_path || '/tmp/stream.ts',
       file_path_mode: enc.file_path_mode || 'file',
       file_prefix: enc.file_prefix || 'stream',
@@ -2617,6 +2623,7 @@ export default function App() {
         patch.srt_latency_ms = Number(editOutputTransport.srt_latency_ms)
       } else if (sinkType === 'rtmp') {
         patch.rtmp_uri = editOutputTransport.rtmp_uri
+        patch.rtmp_plugin = editOutputTransport.rtmp_plugin || 'legacy'
         if (editOutputTransport.rtmp_passcode || !selectedOutput?.encoder?.rtmp_passcode_set) {
           patch.rtmp_passcode = editOutputTransport.rtmp_passcode
         }
@@ -2669,6 +2676,8 @@ export default function App() {
 
   function renderSettingsBody() {
     const sinkType = editOutputTransport.sink_type || 'srt'
+    const savedStreamKeyLength = settingsTab === 'output' ? savedRtmpKeyLength(selectedOutput?.encoder) : 0
+    const savedStreamKeyMask = savedStreamKeyLength > 0 ? '*'.repeat(savedStreamKeyLength) : ''
     if (settingsTab === 'interface') {
       return (
         <>
@@ -2993,8 +3002,18 @@ export default function App() {
                   <input value={editOutputTransport.rtmp_uri || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, rtmp_uri: e.target.value }))} />
                 </div>
                 <div className="settings-row">
+                  <label>{t('RTMP Plugin')}</label>
+                  <select value={editOutputTransport.rtmp_plugin || 'legacy'} onChange={(e) => setEditOutputTransport((s) => ({ ...s, rtmp_plugin: e.target.value }))}>
+                    <option value="legacy">{t('Legacy RTMP')}</option>
+                    <option value="streambox">{t('StreamBox RTMP (experimental)')}</option>
+                  </select>
+                </div>
+                {(editOutputTransport.rtmp_plugin || 'legacy') === 'streambox' && (
+                  <div className="settings-warning">{t('Experimental StreamBox RTMP uses sflvmux/srtmpsink and can publish H.265 enhanced RTMP.')}</div>
+                )}
+                <div className="settings-row">
                   <label>{t('Stream Key')}</label>
-                  <input type="password" value={editOutputTransport.rtmp_passcode || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, rtmp_passcode: e.target.value }))} />
+                  <input type="password" value={editOutputTransport.rtmp_passcode || ''} placeholder={savedStreamKeyMask} onChange={(e) => setEditOutputTransport((s) => ({ ...s, rtmp_passcode: e.target.value }))} />
                 </div>
               </>
             )}
