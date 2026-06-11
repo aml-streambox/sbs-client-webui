@@ -66,8 +66,17 @@ function normalizeOutputSinkType(sinkType?: string): string {
   return sinkType || 'srt'
 }
 
+function normalizeSrtMode(mode?: string): string {
+  return mode === 'caller' || mode === 'client' ? 'caller' : 'listener'
+}
+
 function savedRtmpKeyLength(encoder?: Record<string, unknown> | null): number {
   const length = Number(encoder?.rtmp_stream_key_length ?? encoder?.rtmp_passcode_length ?? 0)
+  return Number.isFinite(length) && length > 0 ? Math.floor(length) : 0
+}
+
+function savedSrtStreamKeyLength(encoder?: Record<string, unknown> | null): number {
+  const length = Number(encoder?.srt_stream_key_length ?? 0)
   return Number.isFinite(length) && length > 0 ? Math.floor(length) : 0
 }
 
@@ -2554,6 +2563,8 @@ export default function App() {
     setEditOutputTransport({
       sink_type: sinkType,
       srt_uri: enc.srt_uri || 'srt://:8888',
+      srt_mode: normalizeSrtMode(enc.srt_mode),
+      srt_stream_key: '',
       srt_latency_ms: String(enc.srt_latency_ms || 600),
       rtmp_uri: enc.rtmp_uri || 'rtmp://localhost:1935/live/stream',
       rtmp_plugin: enc.rtmp_plugin || 'legacy',
@@ -2620,7 +2631,11 @@ export default function App() {
       const patch: Record<string, unknown> = { sink_type: sinkType }
       if (sinkType === 'srt') {
         patch.srt_uri = editOutputTransport.srt_uri
+        patch.srt_mode = editOutputTransport.srt_mode || 'listener'
         patch.srt_latency_ms = Number(editOutputTransport.srt_latency_ms)
+        if (editOutputTransport.srt_stream_key || !selectedOutput?.encoder?.srt_stream_key_set) {
+          patch.srt_stream_key = editOutputTransport.srt_stream_key
+        }
       } else if (sinkType === 'rtmp') {
         patch.rtmp_uri = editOutputTransport.rtmp_uri
         patch.rtmp_plugin = editOutputTransport.rtmp_plugin || 'legacy'
@@ -2676,8 +2691,10 @@ export default function App() {
 
   function renderSettingsBody() {
     const sinkType = editOutputTransport.sink_type || 'srt'
-    const savedStreamKeyLength = settingsTab === 'output' ? savedRtmpKeyLength(selectedOutput?.encoder) : 0
-    const savedStreamKeyMask = savedStreamKeyLength > 0 ? '*'.repeat(savedStreamKeyLength) : ''
+    const savedRtmpStreamKeyLength = settingsTab === 'output' ? savedRtmpKeyLength(selectedOutput?.encoder) : 0
+    const savedRtmpStreamKeyMask = savedRtmpStreamKeyLength > 0 ? '*'.repeat(savedRtmpStreamKeyLength) : ''
+    const savedSrtStreamKeyLengthValue = settingsTab === 'output' ? savedSrtStreamKeyLength(selectedOutput?.encoder) : 0
+    const savedSrtStreamKeyMask = savedSrtStreamKeyLengthValue > 0 ? '*'.repeat(savedSrtStreamKeyLengthValue) : ''
     if (settingsTab === 'interface') {
       return (
         <>
@@ -2983,8 +3000,19 @@ export default function App() {
             {sinkType === 'srt' && (
               <>
                 <div className="settings-row">
+                  <label>{t('SRT Mode')}</label>
+                  <select value={editOutputTransport.srt_mode || 'listener'} onChange={(e) => setEditOutputTransport((s) => ({ ...s, srt_mode: e.target.value }))}>
+                    <option value="listener">{t('Listener')}</option>
+                    <option value="caller">{t('Caller')}</option>
+                  </select>
+                </div>
+                <div className="settings-row">
                   <label>{t('SRT URI')}</label>
                   <input value={editOutputTransport.srt_uri || ''} onChange={(e) => setEditOutputTransport((s) => ({ ...s, srt_uri: e.target.value }))} />
+                </div>
+                <div className="settings-row">
+                  <label>{t('Stream Key')}</label>
+                  <input type="password" value={editOutputTransport.srt_stream_key || ''} placeholder={savedSrtStreamKeyMask} onChange={(e) => setEditOutputTransport((s) => ({ ...s, srt_stream_key: e.target.value }))} />
                 </div>
                 <div className="settings-row">
                   <label>{t('Latency')}</label>
@@ -3013,7 +3041,7 @@ export default function App() {
                 )}
                 <div className="settings-row">
                   <label>{t('Stream Key')}</label>
-                  <input type="password" value={editOutputTransport.rtmp_passcode || ''} placeholder={savedStreamKeyMask} onChange={(e) => setEditOutputTransport((s) => ({ ...s, rtmp_passcode: e.target.value }))} />
+                  <input type="password" value={editOutputTransport.rtmp_passcode || ''} placeholder={savedRtmpStreamKeyMask} onChange={(e) => setEditOutputTransport((s) => ({ ...s, rtmp_passcode: e.target.value }))} />
                 </div>
               </>
             )}
